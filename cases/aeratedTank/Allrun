@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# ===========================================================================
+# bioTankControlFoam | Allrun
+# ===========================================================================
+# TASK 1: Verify the prepared parallel mesh and a fresh start.
+# TASK 2: Run the coupled hydrodynamic/oxygen model with the selected controller.
+# TASK 3: Reconstruct written fields for ParaView.
+
+# ---------------------------------------------------------------------------
+# Setup and input checks
+# ---------------------------------------------------------------------------
+
+set -euo pipefail
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
+[[ -d processor0/constant/polyMesh ]] || {
+    echo 'Run ./Allmesh first.' >&2;
+    exit 1;
+}
+[[ ! -e log.bioTankControlFoam ]] || {
+    echo 'Use Allrestart for an existing run.' >&2;
+    exit 1;
+}
+n=$(foamDictionary system/decomposeParDict -entry numberOfSubdomains -value)
+
+# ---------------------------------------------------------------------------
+# 1. Run the selected solver and controller
+# ---------------------------------------------------------------------------
+
+mpirun -np "$n" foamRun -parallel > log.bioTankControlFoam 2>&1
+
+# ---------------------------------------------------------------------------
+# 2. Reconstruct the latest saved fields for ParaView
+# ---------------------------------------------------------------------------
+
+reconstructPar -latestTime > log.reconstructLatest 2>&1
+touch mesh.foam
+
+# ===========================================================================

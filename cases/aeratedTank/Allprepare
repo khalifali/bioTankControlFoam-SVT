@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# ===========================================================================
+# bioTankControlFoam | Allprepare
+# ===========================================================================
+# TASK 1: Copy the installed official tutorial into a NEW run directory.
+# TASK 2: Overlay the visible teaching files and explicit oxygen numerics.
+# TASK 3: Preserve the full initial state in 0.backup for inspection.
+
+# ---------------------------------------------------------------------------
+# Setup and input checks
+# ---------------------------------------------------------------------------
+
+set -euo pipefail
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
+target=${1:?Usage: ./Allprepare /absolute/path/to/new-run-directory}
+[[ $target == /* ]] || {
+    echo 'Provide an absolute destination path.' >&2;
+    exit 1;
+}
+[[ ! -e "$target" ]] || {
+    echo 'Choose a new directory; existing data are preserved.' >&2;
+    exit 1;
+}
+[[ ${WM_PROJECT_VERSION:-} == 13 ]] || {
+    echo 'Activate Foundation OpenFOAM 13.' >&2;
+    exit 1;
+}
+# A different OF13 revision is informational, not a preparation failure.
+[[ -d ${WM_PROJECT_DIR:-} ]] || {
+    echo 'WM_PROJECT_DIR is missing; source OpenFOAM 13 first.' >&2;
+    exit 1;
+}
+
+# ---------------------------------------------------------------------------
+# Identify the active OpenFOAM installation
+# ---------------------------------------------------------------------------
+
+revision=$(git -C "$WM_PROJECT_DIR" rev-parse HEAD 2>/dev/null || printf 'unknown')
+if [[ $revision != 18870c24d21c6b982e2cdec27b2f59738cca5f90 ]]; then
+    echo "Info: Using Foundation OpenFOAM 13 revision $revision, different from the revision tested with this solver."
+    echo 'This should normally be fine; continuing with your installation.'
+fi
+upstream="$WM_PROJECT_DIR/tutorials/multiphaseEuler/aeratedStirredTankMRF"
+for required in 0 constant system system/fvSchemes system/fvSolution system/decomposeParDict; do
+    [[ -e "$upstream/$required" ]] || {
+        echo "Required tutorial file or directory missing: $upstream/$required" >&2;
+        exit 1;
+    }
+done
+
+# ---------------------------------------------------------------------------
+# Copy the tutorial and teaching files
+# ---------------------------------------------------------------------------
+
+mkdir -p -- "$target"
+cp -a "$upstream/." "$target/"
+cp constant/bioProperties "$target/constant/"
+cp 0.backup/oxygen.liquid "$target/0/"
+cp system/controlDict "$target/system/"
+cp Allmesh Allrun Allclean Allrestart "$target/"
+
+# ---------------------------------------------------------------------------
+# Configure oxygen numerics and parallel decomposition
+# ---------------------------------------------------------------------------
+
+# Euler in both phase and oxygen equations gives a consistent first baseline.
+foamDictionary "$target/system/fvSchemes" \
+     -entry ddtSchemes -set '{ default Euler; }'
+foamDictionary "$target/system/fvSchemes" \
+     -entry 'divSchemes/div(alphaPhi.liquid,oxygen.liquid)' -set 'Gauss upwind'
+foamDictionary "$target/system/fvSchemes" \
+     -entry 'laplacianSchemes/laplacian(oxygenDiffusivity,oxygen.liquid)' -set 'Gauss linear uncorrected'
+foamDictionary "$target/system/fvSolution" \
+     -entry 'solvers/oxygen.liquid' -set '{ solver PBiCGStab; preconditioner DILU; tolerance 1e-12; relTol 0; }'
+foamDictionary "$target/system/decomposeParDict" \
+     -entry numberOfSubdomains -set 8
+
+# ---------------------------------------------------------------------------
+# Preserve initial fields and record provenance
+# ---------------------------------------------------------------------------
+
+cp -a "$target/0" "$target/0.backup"
+printf '%s\n' "$revision" > "$target/upstream-revision.txt"
+touch "$target/mesh.foam"
+echo "Prepared $target. Inspect dictionaries, then run ./Allmesh and ./Allrun there."
+
+# ===========================================================================

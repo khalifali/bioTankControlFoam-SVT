@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# ===========================================================================
+# bioTankControlFoam | Allmesh
+# ===========================================================================
+# TASK 1: Generate the official geometry-based meshing dictionaries.
+# TASK 2: Build and decompose the background mesh, then snap/refine in parallel.
+# TASK 3: Initialise the water/headspace distribution and check the final mesh.
+
+# ---------------------------------------------------------------------------
+# Setup and input checks
+# ---------------------------------------------------------------------------
+
+set -euo pipefail
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
+[[ -f upstream-revision.txt ]] || {
+    echo 'Run Allprepare into a new directory first.' >&2;
+    exit 1;
+}
+[[ ! -d constant/polyMesh ]] || {
+    echo 'Mesh already exists. Use a new run directory.' >&2;
+    exit 1;
+}
+n=$(foamDictionary system/decomposeParDict -entry numberOfSubdomains -value)
+
+# ---------------------------------------------------------------------------
+# 1. Generate meshing dictionaries
+# ---------------------------------------------------------------------------
+
+snappyHexMeshConfig -cylindricalBackground \
+    -rotatingZones 'rotatingZone' \
+    -surfaceLevels '(sparger 3) (stirrer 3)' \
+    -baffles 'baffles' > log.snappyHexMeshConfig 2>&1
+
+# ---------------------------------------------------------------------------
+# 2. Build, decompose and refine the mesh
+# ---------------------------------------------------------------------------
+
+blockMesh > log.blockMesh 2>&1
+decomposePar -copyZero > log.decomposePar 2>&1
+mpirun -np "$n" snappyHexMesh -parallel > log.snappyHexMesh 2>&1
+
+# ---------------------------------------------------------------------------
+# 3. Initialise phases and verify the mesh
+# ---------------------------------------------------------------------------
+
+mpirun -np "$n" setFields -parallel > log.setFields 2>&1
+mpirun -np "$n" checkMesh -parallel -constant > log.checkMesh 2>&1
+
+# ---------------------------------------------------------------------------
+# 4. Reconstruct initial phase fields
+# ---------------------------------------------------------------------------
+
+reconstructPar -withZero -fields '(alpha.gas alpha.liquid)' > log.reconstructInitial 2>&1
+echo 'Mesh complete. Review log.checkMesh before running.'
+
+# ===========================================================================

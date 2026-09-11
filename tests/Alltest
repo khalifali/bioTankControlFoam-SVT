@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Fast C++ checks; native CFD tests are in Allnative.
+set -euo pipefail
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+build=$(mktemp -d)
+trap 'rm -rf -- "$build"' EXIT
+g++ -std=c++17 -Wall -Wextra -Werror -Isrc/controller tests/kernel.cpp -o "$build/kernel"
+"$build/kernel"
+g++ -std=c++17 -Wall -Wextra -Werror -Isrc/controller -shared -fPIC studentController/StudentController.C -o "$build/template.so"
+g++ -std=c++17 -Wall -Wextra -Werror -Isrc/controller -shared -fPIC studentController/examples/OxygenPI.C -o "$build/pi.so"
+while IFS= read -r f; do bash -n "$f"; done < <(find . -type f \( -name 'All*' -o -name '*.sh' \))
+python3 -m py_compile scripts/*.py tests/*.py

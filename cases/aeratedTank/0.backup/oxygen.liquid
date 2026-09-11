@@ -1,0 +1,51 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  13
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format              ascii;
+    class               volScalarField;
+    object              oxygen.liquid;
+}
+
+// Dissolved oxygen in the liquid. Initial 0.15 mol/m3 = 4.8 mg/L.
+
+// ---------------------------------------------------------------------------
+// 1. Units and initial dissolved oxygen
+// ---------------------------------------------------------------------------
+
+dimensions              [0 -3 0 0 1 0 0];
+internalField       uniform 0.15;
+
+// ---------------------------------------------------------------------------
+// 2. Boundary conditions
+// ---------------------------------------------------------------------------
+
+boundaryField
+{
+    // Gas injection carries no liquid flux; no imposed liquid oxygen source here.
+    inlet
+    {
+        type                zeroGradient;
+    }
+    // If water enters through the outlet, prescribe its dissolved oxygen.
+    outlet
+    {
+        type                inletOutlet;
+        phi                 alphaPhi.liquid;
+        inletValue          uniform 0.15;
+        value               uniform 0.15;
+    }
+    // Use the wall patch group; leave internal/processor constraints intact.
+    wall
+    {
+        type                zeroGradient;
+    }
+    #includeEtc "caseDicts/setConstraintTypes"
+}
+
+// ************************************************************************* //

@@ -1,0 +1,5 @@
+bioTankControlFoam is distributed under GPL-3.0-or-later.
+The solver extends OpenFOAM Foundation 13 multiphaseEuler.
+Official tutorial geometry and dictionaries are copied from the user's
+OpenFOAM installation by Allprepare and retain their upstream notices.
+Controller and reaction design adapts khalifali/oxyControlFoam (GPL-3.0-or-later).

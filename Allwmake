@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Compile only this project against the active Foundation OpenFOAM 13.
+set -euo pipefail
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
+[[ ${WM_PROJECT_VERSION:-} == 13 ]] || { echo 'Source OpenFOAM Foundation 13 first.' >&2; exit 1; }
+wmake libso src/bioTankControlFoam
+wmake libso studentController

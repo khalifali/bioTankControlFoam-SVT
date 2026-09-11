@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# ===========================================================================
+# bioTankControlFoam | Allrestart
+# ===========================================================================
+# TASK 1: Preserve time directories, state and logs; restart from latestTime.
+# TASK 2: Set a later endTime and run using the same processor decomposition.
+# TASK 3: Reconstruct only the latest output for ParaView.
+
+# ---------------------------------------------------------------------------
+# Setup and input checks
+# ---------------------------------------------------------------------------
+
+set -euo pipefail
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
+end=${1:?Usage: ./Allrestart newEndTime}
+[[ -d processor0 ]] || {
+    echo 'Missing parallel run.' >&2;
+    exit 1;
+}
+
+# ---------------------------------------------------------------------------
+# 1. Select the saved checkpoint and new end time
+# ---------------------------------------------------------------------------
+
+foamDictionary system/controlDict \
+     -entry startFrom -set latestTime
+foamDictionary system/controlDict \
+     -entry endTime -set "$end"
+
+# ---------------------------------------------------------------------------
+# 2. Continue using the existing decomposition
+# ---------------------------------------------------------------------------
+
+n=$(foamDictionary system/decomposeParDict -entry numberOfSubdomains -value)
+log="log.restart.$(date +%s)"
+mpirun -np "$n" foamRun -parallel > "$log" 2>&1
+
+# ---------------------------------------------------------------------------
+# 3. Reconstruct the latest saved fields
+# ---------------------------------------------------------------------------
+
+reconstructPar -latestTime > "$log.reconstruct" 2>&1
+
+# ===========================================================================

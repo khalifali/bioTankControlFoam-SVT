@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Native verification uses a fresh results directory and the installed upstream case.
+set -euo pipefail
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+# Exercise the reuse installer and generated activation against this exact build.
+bash scripts/install-openfoam13.sh --foam-dir "$WM_PROJECT_DIR" --prefix "$PWD/tests/install-check"
+source "$PWD/tests/install-check/activate-bioTankControlFoam.sh"
+command -v bioTankControlFoam
+python3 scripts/geometry_report.py
+export BIO_TANK_SMOKE=${BIO_TANK_SMOKE:-1}
+python3 tests/native_suite.py

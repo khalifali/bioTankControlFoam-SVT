@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# ===========================================================================
+# bioTankControlFoam | Allclean
+# ===========================================================================
+# Destructive, explicit opt-in: remove generated mesh, fields, processors and logs.
+# This script only operates on an Allprepare-generated run, never the template.
+
+# ---------------------------------------------------------------------------
+# Setup and input checks
+# ---------------------------------------------------------------------------
+
+set -euo pipefail
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
+[[ ${1:-} == --yes && -f upstream-revision.txt && -d 0.backup ]] || {
+    echo 'Usage: ./Allclean --yes inside a prepared run';
+    exit 1;
+}
+
+# ---------------------------------------------------------------------------
+# 1. Remove generated results, mesh and logs
+# ---------------------------------------------------------------------------
+
+foamListTimes -rm > /dev/null
+rm -rf -- processor[0-9]* postProcessing constant/polyMesh
+rm -f -- log.*
+
+# ---------------------------------------------------------------------------
+# 2. Restore the initial fields and start mode
+# ---------------------------------------------------------------------------
+
+rm -rf -- 0
+cp -a 0.backup 0
+foamDictionary system/controlDict \
+     -entry startFrom -set startTime
+
+# ===========================================================================

@@ -1,0 +1,7 @@
+**/Make/linux*/
+**/lnInclude/
+**/__pycache__/
+runs/
+tests/results/
+tests/install-check/
+*.so
