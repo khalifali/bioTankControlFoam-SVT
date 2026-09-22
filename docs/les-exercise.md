@@ -54,7 +54,7 @@ blade/gap resolution, wakes and gas distribution after meshing.
 
 The first version retains the tutorial's `nutkWallFunction` wall treatment and
 does not add prism layers. It is not wall-resolved LES. Before quantitative use,
-measure y+, assess wall-function validity and design suitable wall-normal
+review the automatic liquid y+ output, assess wall-function validity and design suitable wall-normal
 resolution/layers; check sensitivity of torque and mixing to those choices.
 
 ## Time, numerics and interpretation
@@ -80,20 +80,38 @@ probe histories and oxygen deficiency across grids and time steps. Allow flow
 development and collect statistics over many revolutions. A rotating-mesh/NCC
 extension would require revising the MRF actuator implementation as well.
 
+## Mesh quality and resolution report
+
+`Allmesh` runs `checkMesh -allGeometry -allTopology`. A failed mesh check must be
+resolved before interpreting the simulation. The native check also writes
+`summary.json` containing checkMesh geometry metrics and min/median/max
+$\Delta=V^{1/3}$ in the whole mesh, impeller envelope, discharge/baffle region,
+and central plume. Overlapping regions are intentional. This filter width does
+not measure directional stretching; also inspect the aspect-ratio report and
+mesh slices through blade gaps and wakes.
+
+Each LES run writes cell centres (`C`), volumes (`V`), and liquid `yPlus` at
+output times. The report includes final startup y+ min/max/mean by wall patch.
+These startup values are diagnostic only: assess wall resolution again after
+flow development. `Mesh OK` does not establish resolved turbulent energy,
+adequate wall modelling, or grid-independent oxygen mixing.
+
 ## Short native check
 
 ```bash
 python3 tests/les_smoke.py --output "$PWD/tests/results/les-smoke" --ranks 8
+# Check the finer exercise grid instead:
+python3 tests/les_smoke.py --profile exercise --output "$PWD/tests/results/les-exercise" --ranks 8
 ```
 
-Use a new output directory each time. This builds the smoke-profile mesh and runs
+Use a new output directory each time. The default builds the smoke-profile mesh; `--profile exercise` builds the finer
+exercise grid. Both run
 40 steps to 0.004 s, then restarts for 20 more steps to 0.006 s. Oxygen starts at
 zero and demand changes at 0.002 s for this test only. It checks mesh quality,
 selection of both LES models, finite oxygen balances, nonnegative inventory,
 nonzero uptake, a maximum logged Courant number no greater than 1, restart and
 VTK export of all four saved times. Logs, generated dictionaries and `summary.json`
-are retained. It does not establish developed turbulence or validate the finer
-exercise mesh.
+are retained. It does not establish developed turbulence or grid-independent LES accuracy.
 
 Model references: [SmagorinskyZhang](https://cpp.openfoam.org/v13/SmagorinskyZhang_8H_source.html),
 [official bubbleColumnLES](https://github.com/OpenFOAM/OpenFOAM-13/tree/master/tutorials/multiphaseEuler/bubbleColumnLES).

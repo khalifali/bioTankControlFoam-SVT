@@ -33,12 +33,12 @@ case "$profile" in
         background='(8 24 72)'
         surfaces='(sparger 4) (stirrer 4) (baffles 3)'
         # Extend refined liquid volume through both impellers and their wakes.
-        boxes='((-0.46 -0.46 0.04) (0.46 0.46 0.65) 2) ((-0.20 -0.20 -0.02) (0.20 0.20 0.80) 2)'
+        boxes='((-0.46 -0.46 0.04) (0.46 0.46 0.76) 2) ((-0.20 -0.20 -0.02) (0.20 0.20 0.80) 2)'
         ;;
     smoke)
         background='(5 15 44)'
         surfaces='(sparger 3) (stirrer 3) (baffles 2)'
-        boxes='((-0.35 -0.35 0.04) (0.35 0.35 0.65) 1) ((-0.16 -0.16 -0.02) (0.16 0.16 0.80) 1)'
+        boxes='((-0.35 -0.35 0.04) (0.35 0.35 0.76) 1) ((-0.16 -0.16 -0.02) (0.16 0.16 0.80) 1)'
         ;;
     *) echo "Unknown LES mesh profile: $profile" >&2; exit 2 ;;
 esac
@@ -65,7 +65,7 @@ mpirun -np "$n" snappyHexMesh -parallel > log.snappyHexMesh 2>&1
 # ---------------------------------------------------------------------------
 
 mpirun -np "$n" setFields -parallel > log.setFields 2>&1
-mpirun -np "$n" checkMesh -parallel -constant > log.checkMesh 2>&1
+mpirun -np "$n" checkMesh -parallel -constant -allGeometry -allTopology > log.checkMesh 2>&1
 
 # ---------------------------------------------------------------------------
 # 4. Reconstruct initial phase fields

@@ -26,6 +26,13 @@ foamDictionary "$target/system/controlDict" -entry writeInterval -set 0.1
 foamDictionary "$target/system/fvSchemes" -entry 'gradSchemes/grad(U)' -set 'Gauss linear'
 foamDictionary "$target/system/fvSchemes" -entry 'divSchemes/div(alphaRhoPhi,U)' -set 'Gauss linearUpwind grad(U)'
 foamDictionary "$target/system/fvSchemes" -entry 'divSchemes/div(phi,U)' -set 'Gauss linearUpwind grad(U)'
+# Retain liquid wall diagnostics in every LES run (startup values are not validation).
+foamDictionary "$target/system/controlDict" -entry functions/lesYPlus \
+    -set '{ type yPlus; libs ("libfieldFunctionObjects.so"); phase liquid; executeControl timeStep; executeInterval 1; writeControl writeTime; }'
+foamDictionary "$target/system/controlDict" -entry functions/lesCellVolumes \
+    -set '{ type writeCellVolumes; libs ("libfieldFunctionObjects.so"); writeControl writeTime; }'
+foamDictionary "$target/system/controlDict" -entry functions/lesCellCentres \
+    -set '{ type writeCellCentres; libs ("libfieldFunctionObjects.so"); writeControl writeTime; }'
 # A constant operating point makes the initial LES exercise easier to assess.
 foamDictionary "$target/constant/bioProperties" -entry controller -set constant
 foamDictionary "$target/constant/bioProperties" -entry initialGasFlow -set '[0 3 -1 0 0 0 0] 0.0186666666666667'

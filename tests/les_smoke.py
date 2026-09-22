@@ -21,6 +21,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--ranks', type=int, default=8)
+    parser.add_argument('--profile', choices=('smoke', 'exercise'), default='smoke')
     args = parser.parse_args()
     if args.ranks < 1:
         parser.error('--ranks must be positive')
@@ -46,7 +47,7 @@ def main():
                        check=True, stdout=subprocess.DEVNULL)
 
     run('prepare', ['bash', str(ROOT / 'cases/aeratedTankLES/Allprepare'),
-                    str(case), 'smoke', str(args.ranks)])
+                    str(case), args.profile, str(args.ranks)])
     # Exercise oxygen immediately, both writes, demand change and a restart.
     setentry('system/controlDict', 'endTime', '0.004')
     setentry('system/controlDict', 'writeInterval', '0.002')
@@ -89,13 +90,71 @@ def main():
     for entry in series['files']:
         if (case / 'VTK' / entry['name']).stat().st_size == 0:
             raise RuntimeError('Empty VTK dataset')
-    summary = {'status': 'passed', 'scope': 'short integration smoke; not converged LES',
-               'meshProfile': 'smoke', 'ranks': args.ranks,
+    # The function objects write ASCII cell volume/centres at the final time.
+    def internal(path, vector=False):
+        content = path.read_text()
+        match = re.search(r'internalField\s+nonuniform\s+List<[^>]+>\s+(\d+)\s*\((.*?)\)\s*;', content, re.S)
+        if not match:
+            raise RuntimeError('Missing nonuniform diagnostic field: ' + str(path))
+        if vector:
+            values = [tuple(map(float, row.split())) for row in re.findall(r'\(([^()]+)\)', match[2])]
+        else:
+            values = list(map(float, match[2].split()))
+        if len(values) != int(match[1]):
+            raise RuntimeError('Diagnostic cell count mismatch')
+        return values
+
+    volumes = internal(case / '0.006/V')
+    centres = internal(case / '0.006/C', vector=True)
+    if len(volumes) != len(centres) or not volumes or min(volumes) <= 0:
+        raise RuntimeError('Invalid cell volumes/centres')
+    widths = [v**(1/3) for v in volumes]
+    regions = {
+        'wholeMesh': lambda x, y, z: True,
+        'impellerEnvelope': lambda x, y, z: x*x+y*y < .18**2 and .04 < z < .76,
+        'dischargeAndBaffles': lambda x, y, z: .18**2 < x*x+y*y < .46**2 and .04 < z < .76,
+        'centralPlume': lambda x, y, z: x*x+y*y < .20**2 and .02 < z < .80,
+    }
+    sizes = {}
+    for name, selected in regions.items():
+        values = sorted(w for w, c in zip(widths, centres) if selected(*c))
+        if not values:
+            raise RuntimeError('Empty mesh audit region: ' + name)
+        sizes[name] = {'cells': len(values), 'minDelta_m': values[0],
+                       'medianDelta_m': values[len(values)//2], 'maxDelta_m': values[-1]}
+    wall = list(case.glob('postProcessing/yPlus.liquid/*/yPlus.liquid.dat'))
+    if not wall:
+        wall = list(case.glob('postProcessing/**/yPlus*.dat'))
+    if not wall:
+        raise RuntimeError('Missing liquid y+ diagnostic')
+    wall_values = {}
+    for path in wall:
+        for line in path.read_text().splitlines():
+            if not line.strip() or line.lstrip().startswith('#'):
+                continue
+            parts = line.split()
+            if len(parts) != 5:
+                raise RuntimeError('Unexpected y+ diagnostic row: ' + line)
+            time, low, high, mean = map(float, (parts[0], *parts[2:]))
+            if not all(math.isfinite(v) and v >= 0 for v in (time, low, high, mean)):
+                raise RuntimeError('Invalid wall y+ values')
+            if parts[1] not in wall_values or time >= wall_values[parts[1]]['time_s']:
+                wall_values[parts[1]] = {'time_s': time, 'min': low, 'max': high, 'mean': mean}
+    if not wall_values:
+        raise RuntimeError('Empty wall y+ diagnostics')
+    quality = [line.strip() for line in mesh.splitlines() if any(term in line.lower()
+               for term in ('aspect ratio', 'non-orthogonality', 'skewness', 'volume =', 'mesh ok'))]
+    summary = {'status': 'passed' , 'scope': 'short integration smoke; not converged LES',
+               'meshProfile': args.profile, 'ranks': args.ranks,
                'cells': re.findall(r'^\s*cells:\s*(\d+)', mesh, re.M),
                'deltaT_s': .0001, 'endTime_s': .006,
                'maxCourant': max(courants), 'maxOxygenBalanceResidual_mol': residual,
                'vtkTimes_s': converted,
-               'openfoamVersion': os.environ.get('WM_PROJECT_VERSION')}
+               'openfoamVersion': os.environ.get('WM_PROJECT_VERSION'),
+               'meshQuality': quality, 'filterWidthByRegion': sizes,
+               'wallDiagnostics': [str(p.relative_to(case)) for p in wall],
+               'startupLiquidYPlusByPatch': wall_values,
+               'wallAssessment': 'startup y+ only; developed-flow wall adequacy unverified'}
     (output / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
     print(json.dumps(summary, indent=2), flush=True)
 
