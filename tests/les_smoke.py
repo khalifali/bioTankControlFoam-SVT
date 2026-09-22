@@ -23,13 +23,16 @@ def main():
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--ranks', type=int, default=8)
     parser.add_argument('--profile', choices=('smoke', 'exercise'), default='smoke')
+    parser.add_argument('--existing-case', type=Path, help='audit/export an already completed retained smoke case without rerunning CFD')
     parser.add_argument('--reuse-mesh', type=Path, help='copy a retained mesh with the identical Allmesh recipe')
     args = parser.parse_args()
     if args.ranks < 1:
         parser.error('--ranks must be positive')
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
-    case = output / 'tankLES'
+    case = args.existing_case.resolve() if args.existing_case else output / 'tankLES'
+    if args.existing_case and (case/'les-mesh-profile').read_text().strip() != args.profile:
+        parser.error('--profile must match the existing case')
 
     def run(name, command, cwd=ROOT):
         log = output / (name + '.log')
@@ -48,39 +51,40 @@ def main():
         subprocess.run(['foamDictionary', str(case / file), '-entry', key, '-set', value],
                        check=True, stdout=subprocess.DEVNULL)
 
-    run('prepare', ['bash', str(ROOT / 'cases/aeratedTankLES/Allprepare'),
-                    str(case), args.profile, str(args.ranks)])
-    # Exercise oxygen immediately, both writes, demand change and a restart.
-    setentry('system/controlDict', 'endTime', '0.0004')
-    setentry('system/controlDict', 'writeInterval', '0.0002')
-    for key, value in {'oxygenStartTime': '0', 'controlStartTime': '0',
-                       'sampleInterval': '0.0001', 'demandChangeTime': '0.0002'}.items():
-        setentry('constant/bioProperties', key, '[0 0 1 0 0 0 0] ' + value)
-    if args.reuse_mesh:
-        source = args.reuse_mesh.resolve()
-        if (source / 'Allmesh').read_bytes() != (case / 'Allmesh').read_bytes():
-            raise RuntimeError('Mesh reuse refused: Allmesh recipe differs')
-        if (source / 'les-mesh-profile').read_text().strip() != args.profile:
-            raise RuntimeError('Mesh reuse refused: profile differs')
-        source_processors = list(source.glob('processor[0-9]*'))
-        if len(source_processors) != args.ranks:
-            raise RuntimeError('Mesh reuse refused: rank count differs')
-        for geometry in (case / 'constant/geometry').glob('*.obj'):
-            if geometry.read_bytes() != (source / 'constant/geometry' / geometry.name).read_bytes():
-                raise RuntimeError('Mesh reuse refused: geometry differs')
-        # Only copy initial fields and the fixed mesh, never evolved snapshots.
-        shutil.copytree(source / 'constant/polyMesh', case / 'constant/polyMesh')
-        shutil.rmtree(case / '0')  # owned, freshly prepared destination only
-        shutil.copytree(source / '0', case / '0')
-        for processor in source_processors:
-            for part in ('constant', '0'):
-                shutil.copytree(processor / part, case / processor.name / part)
-        for name in ('blockMeshDict', 'snappyHexMeshDict', 'meshQualityDict'):
-            shutil.copy2(source / 'system' / name, case / 'system' / name)
-        shutil.copy2(source / 'log.checkMesh', case / 'log.checkMesh')
-        print('Reused identical retained mesh:', source, flush=True)
-    else:
-        run('mesh', ['bash', './Allmesh'], case)
+    if not args.existing_case:
+        run('prepare', ['bash', str(ROOT / 'cases/aeratedTankLES/Allprepare'),
+                        str(case), args.profile, str(args.ranks)])
+        # Exercise oxygen immediately, both writes, demand change and a restart.
+        setentry('system/controlDict', 'endTime', '0.0004')
+        setentry('system/controlDict', 'writeInterval', '0.0002')
+        for key, value in {'oxygenStartTime': '0', 'controlStartTime': '0',
+                           'sampleInterval': '0.0001', 'demandChangeTime': '0.0002'}.items():
+            setentry('constant/bioProperties', key, '[0 0 1 0 0 0 0] ' + value)
+        if args.reuse_mesh:
+            source = args.reuse_mesh.resolve()
+            if (source / 'Allmesh').read_bytes() != (case / 'Allmesh').read_bytes():
+                raise RuntimeError('Mesh reuse refused: Allmesh recipe differs')
+            if (source / 'les-mesh-profile').read_text().strip() != args.profile:
+                raise RuntimeError('Mesh reuse refused: profile differs')
+            source_processors = list(source.glob('processor[0-9]*'))
+            if len(source_processors) != args.ranks:
+                raise RuntimeError('Mesh reuse refused: rank count differs')
+            for geometry in (case / 'constant/geometry').glob('*.obj'):
+                if geometry.read_bytes() != (source / 'constant/geometry' / geometry.name).read_bytes():
+                    raise RuntimeError('Mesh reuse refused: geometry differs')
+            # Only copy initial fields and the fixed mesh, never evolved snapshots.
+            shutil.copytree(source / 'constant/polyMesh', case / 'constant/polyMesh')
+            shutil.rmtree(case / '0')  # owned, freshly prepared destination only
+            shutil.copytree(source / '0', case / '0')
+            for processor in source_processors:
+                for part in ('constant', '0'):
+                    shutil.copytree(processor / part, case / processor.name / part)
+            for name in ('blockMeshDict', 'snappyHexMeshDict', 'meshQualityDict'):
+                shutil.copy2(source / 'system' / name, case / 'system' / name)
+            shutil.copy2(source / 'log.checkMesh', case / 'log.checkMesh')
+            print('Reused identical retained mesh:', source, flush=True)
+        else:
+            run('mesh', ['bash', './Allmesh'], case)
     mesh = (case / 'log.checkMesh').read_text()
     print(mesh, flush=True)
     # Concavity alone is retained as an explicit LES caveat, never hidden as
@@ -95,11 +99,22 @@ def main():
     basic_mesh = (output / 'basic-mesh-check.log').read_text()
     if 'Mesh OK' not in basic_mesh:
         raise RuntimeError('Basic mesh validity/topology check failed')
-    run('solve', ['bash', './Allrun'], case)
-    run('restart', ['bash', './Allrestart', '0.0008'], case)
+    if not args.existing_case:
+        run('solve', ['bash', './Allrun'], case)
+        run('restart', ['bash', './Allrestart', '0.0008'], case)
     solver = (case / 'log.bioTankControlFoam').read_text()
     restart_logs = list(case.glob('log.restart.*'))
-    history = solver + '\n'.join(p.read_text() for p in restart_logs)
+    segments = [solver] + [p.read_text() for p in restart_logs if not p.name.endswith('.reconstruct')]
+    for segment in segments:
+        print('Courant/timing audit:', '\n'.join(line for line in segment.splitlines()
+              if any(t in line for t in ('Courant Number', 'Starting time loop', 'Time =', 'bioActuators:'))), flush=True)
+    # multiphaseEuler's constructor reports a provisional Co BEFORE this
+    # module installs/restores the requested MRF speed in preSolve. Gate the
+    # actual advancing steps, and report those constructor values separately.
+    if any('Starting time loop' not in segment for segment in segments):
+        raise RuntimeError('Missing solver time-loop marker')
+    history = '\n'.join(segment.split('Starting time loop', 1)[1] for segment in segments)
+    startup_history = '\n'.join(segment.split('Starting time loop', 1)[0] for segment in segments)
     for model in ('SmagorinskyZhang', 'continuousGasKEqn', 'Oxygen integration: midpoint'):
         if model not in solver:
             raise RuntimeError('LES model not confirmed in solver log: ' + model)
@@ -185,7 +200,8 @@ def main():
                'meshProfile': args.profile, 'ranks': args.ranks,
                'cells': re.findall(r'^\s*cells:\s*(\d+)', mesh, re.M),
                'deltaT_s': .0001, 'endTime_s': .0008,
-               'maxCourant': max(courants), 'maxOxygenBalanceResidual_mol': residual,
+               'maxCourant': max(courants),
+               'constructorCourants': [float(v) for v in re.findall(r'Courant Number[^\n]*max:\s*([\d.eE+-]+)', startup_history)], 'maxOxygenBalanceResidual_mol': residual,
                'vtkTimes_s': converted,
                'openfoamVersion': os.environ.get('WM_PROJECT_VERSION'),
                'meshQuality': quality, 'filterWidthByRegion': sizes,
