@@ -128,6 +128,12 @@ Do not rename a case between exports: VTK filenames use the case directory name.
 The helper targets this fixed-mesh, single-region tank and its standard
 `processorN` storage; collated `processors*` storage is rejected explicitly.
 
+## LES exercise
+
+A separate [LES-MRF exercise](docs/les-exercise.md) provides multiphase LES models,
+volume-refined meshing profiles and a short native integration check. The default
+RANS exercise remains unchanged. Read the LES limitations before using its output.
+
 ## Read before interpreting results
 
 - [Complete parameter reference](docs/aerated-tank-walkthrough.md#complete-bioproperties-parameter-reference)

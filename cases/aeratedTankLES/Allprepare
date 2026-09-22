@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Usage: ./cases/aeratedTankLES/Allprepare /absolute/new/run [exercise|smoke] [ranks]
+# Creates an independent LES-MRF case. Never modifies the RANS template/run.
+# exercise: candidate refined grid; smoke: cheaper integration test grid only.
+set -euo pipefail
+here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+target=${1:?Usage: Allprepare /absolute/new/run [exercise|smoke] [ranks]}
+profile=${2:-exercise}
+ranks=${3:-8}
+[[ $# -le 3 && $profile =~ ^(exercise|smoke)$ && $ranks =~ ^[1-9][0-9]*$ ]] || {
+    echo 'Expected profile exercise|smoke and a positive MPI rank count.' >&2; exit 2;
+}
+"$here/../aeratedTank/Allprepare" "$target"
+cp "$here/constant/"* "$target/constant/"
+cp "$here/Allmesh" "$target/"
+printf '%s\n' "$profile" > "$target/les-mesh-profile"
+foamDictionary "$target/system/decomposeParDict" -entry numberOfSubdomains -set "$ranks"
+# Keep decomposition independent of optional Scotch/Metis installations.
+foamDictionary "$target/system/decomposeParDict" -entry method -set hierarchical
+foamDictionary "$target/system/decomposeParDict" -entry hierarchicalCoeffs \
+    -set "{ n (1 1 $ranks); order xyz; }"
+foamDictionary "$target/system/controlDict" -entry deltaT -set 0.0001
+foamDictionary "$target/system/controlDict" -entry writeInterval -set 0.1
+# Preserve Euler and the conservative oxygen split until independently verified
+# with other temporal schemes. No claim of second-order scalar integration.
+foamDictionary "$target/system/fvSchemes" -entry 'gradSchemes/grad(U)' -set 'Gauss linear'
+foamDictionary "$target/system/fvSchemes" -entry 'divSchemes/div(alphaRhoPhi,U)' -set 'Gauss linearUpwind grad(U)'
+foamDictionary "$target/system/fvSchemes" -entry 'divSchemes/div(phi,U)' -set 'Gauss linearUpwind grad(U)'
+# A constant operating point makes the initial LES exercise easier to assess.
+foamDictionary "$target/constant/bioProperties" -entry controller -set constant
+foamDictionary "$target/constant/bioProperties" -entry initialGasFlow -set '[0 3 -1 0 0 0 0] 0.0186666666666667'
+# Retain official wall functions as an initial wall-modelled treatment.
+# k.gas is needed by continuousGasKEqn; k.liquid remains for wall-function input.
+# omega belongs to the former RANS closure, and is not solved by either LES model.
+rm -f -- "$target/0/omega.gas" "$target/0/omega.liquid" \
+    "$target/0.backup/omega.gas" "$target/0.backup/omega.liquid"
+echo "Prepared LES-MRF $profile case: $target"
+echo 'Run ./Allmesh then ./Allrun. Check local Courant number, y+ and grid sensitivity.'

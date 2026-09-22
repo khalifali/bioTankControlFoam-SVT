@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# ===========================================================================
+# bioTankControlFoam | LES-MRF Allmesh
+# ===========================================================================
+# TASK 1: Generate the official geometry-based meshing dictionaries.
+# TASK 2: Build and decompose the background mesh, then snap/refine in parallel.
+# TASK 3: Initialise the water/headspace distribution and check the final mesh.
+
+# ---------------------------------------------------------------------------
+# Setup and input checks
+# ---------------------------------------------------------------------------
+
+set -euo pipefail
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
+[[ -f upstream-revision.txt ]] || {
+    echo 'Run Allprepare into a new directory first.' >&2;
+    exit 1;
+}
+[[ ! -d constant/polyMesh ]] || {
+    echo 'Mesh already exists. Use a new run directory.' >&2;
+    exit 1;
+}
+n=$(foamDictionary system/decomposeParDict -entry numberOfSubdomains -value)
+
+# ---------------------------------------------------------------------------
+# 1. Generate meshing dictionaries
+# ---------------------------------------------------------------------------
+
+profile=$(cat les-mesh-profile)
+case "$profile" in
+    exercise)
+        # Background circumferential/central, radial and axial counts.
+        background='(8 24 72)'
+        surfaces='(sparger 4) (stirrer 4) (baffles 3)'
+        # Extend refined liquid volume through both impellers and their wakes.
+        boxes='((-0.46 -0.46 0.04) (0.46 0.46 0.65) 2) ((-0.20 -0.20 -0.02) (0.20 0.20 0.80) 2)'
+        ;;
+    smoke)
+        background='(5 15 44)'
+        surfaces='(sparger 3) (stirrer 3) (baffles 2)'
+        boxes='((-0.35 -0.35 0.04) (0.35 0.35 0.65) 1) ((-0.16 -0.16 -0.02) (0.16 0.16 0.80) 1)'
+        ;;
+    *) echo "Unknown LES mesh profile: $profile" >&2; exit 2 ;;
+esac
+snappyHexMeshConfig -cylindricalBackground \
+    -nCells "$background" \
+    -rotatingZones 'rotatingZone' \
+    -surfaceLevels "$surfaces" \
+    -refinementBoxes "$boxes" \
+    -nCellsBetweenLevels 4 \
+    -baffles 'baffles' > log.snappyHexMeshConfig 2>&1
+# Generated dictionaries remain visible and are included in smoke-test artifacts.
+# Wall layers are not claimed as resolved; assess y+ before using this for LES data.
+
+# ---------------------------------------------------------------------------
+# 2. Build, decompose and refine the mesh
+# ---------------------------------------------------------------------------
+
+blockMesh > log.blockMesh 2>&1
+decomposePar -copyZero > log.decomposePar 2>&1
+mpirun -np "$n" snappyHexMesh -parallel > log.snappyHexMesh 2>&1
+
+# ---------------------------------------------------------------------------
+# 3. Initialise phases and verify the mesh
+# ---------------------------------------------------------------------------
+
+mpirun -np "$n" setFields -parallel > log.setFields 2>&1
+mpirun -np "$n" checkMesh -parallel -constant > log.checkMesh 2>&1
+
+# ---------------------------------------------------------------------------
+# 4. Reconstruct initial phase fields
+# ---------------------------------------------------------------------------
+
+reconstructPar -withZero -fields '(alpha.gas alpha.liquid)' > log.reconstructInitial 2>&1
+echo 'Mesh complete. Review log.checkMesh before running.'
+
+# ===========================================================================

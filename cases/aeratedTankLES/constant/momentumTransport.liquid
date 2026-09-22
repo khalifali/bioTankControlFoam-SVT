@@ -1,0 +1,15 @@
+/* Foundation OpenFOAM 13: dispersed-bubble LES exercise. */
+FoamFile
+{
+    format ascii;
+    class dictionary;
+    object momentumTransport.liquid;
+}
+simulationType LES;
+LES
+{
+    model SmagorinskyZhang;
+    turbulence on;
+    delta cubeRootVol;
+    cubeRootVolCoeffs {}
+}
