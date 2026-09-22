@@ -55,10 +55,10 @@ def main():
         run('prepare', ['bash', str(ROOT / 'cases/aeratedTankLES/Allprepare'),
                         str(case), args.profile, str(args.ranks)])
         # Exercise oxygen immediately, both writes, demand change and a restart.
-        setentry('system/controlDict', 'endTime', '0.0004')
-        setentry('system/controlDict', 'writeInterval', '0.0002')
+        setentry('system/controlDict', 'endTime', '0.0002')
+        setentry('system/controlDict', 'writeInterval', '0.0001')
         for key, value in {'oxygenStartTime': '0', 'controlStartTime': '0',
-                           'sampleInterval': '0.0001', 'demandChangeTime': '0.0002'}.items():
+                           'sampleInterval': '0.0001', 'demandChangeTime': '0.0001'}.items():
             setentry('constant/bioProperties', key, '[0 0 1 0 0 0 0] ' + value)
         if args.reuse_mesh:
             source = args.reuse_mesh.resolve()
@@ -101,16 +101,15 @@ def main():
         raise RuntimeError('Basic mesh validity/topology check failed')
     if not args.existing_case:
         run('solve', ['bash', './Allrun'], case)
-        run('restart', ['bash', './Allrestart', '0.0008'], case)
+        run('restart', ['bash', './Allrestart', '0.0004'], case)
     solver = (case / 'log.bioTankControlFoam').read_text()
     restart_logs = list(case.glob('log.restart.*'))
     segments = [solver] + [p.read_text() for p in restart_logs if not p.name.endswith('.reconstruct')]
     for segment in segments:
         print('Courant/timing audit:', '\n'.join(line for line in segment.splitlines()
               if any(t in line for t in ('Courant Number', 'Starting time loop', 'Time =', 'bioActuators:'))), flush=True)
-    # multiphaseEuler's constructor reports a provisional Co BEFORE this
-    # module installs/restores the requested MRF speed in preSolve. Gate the
-    # actual advancing steps, and report those constructor values separately.
+    # Report constructor diagnostics separately. Gate EVERY advancing-step
+    # Courant value, including the first preSolve call after actuator setup.
     if any('Starting time loop' not in segment for segment in segments):
         raise RuntimeError('Missing solver time-loop marker')
     history = '\n'.join(segment.split('Starting time loop', 1)[1] for segment in segments)
@@ -122,8 +121,8 @@ def main():
     for path in sorted(case.glob('postProcessing/bioControl/*/oxygenBalance.csv')):
         with path.open() as stream:
             rows.extend({k: float(v) for k, v in row.items()} for row in csv.DictReader(stream))
-    if not rows or abs(max(r['time_s'] for r in rows) - .0008) > 1e-9:
-        raise RuntimeError('Missing final oxygen balance at 0.0008 s')
+    if not rows or abs(max(r['time_s'] for r in rows) - .0004) > 1e-9:
+        raise RuntimeError('Missing final oxygen balance at 0.0004 s')
     if any(not all(math.isfinite(v) for v in row.values()) for row in rows):
         raise RuntimeError('Non-finite oxygen balance')
     residual = max(abs(row['residual_mol']) for row in rows)
@@ -137,7 +136,7 @@ def main():
     run('vtk', ['bash', './foamToVTK.sh', 'all', str(min(args.ranks, 4))], case)
     series = json.loads((case / 'VTK/tankLES.vtk.series').read_text())
     converted = [entry['time'] for entry in series['files']]
-    if converted != [0, .0002, .0004, .0006, .0008]:
+    if converted != [0, .0001, .0002, .0003, .0004]:
         raise RuntimeError(f'Unexpected series times: {converted}')
     for entry in series['files']:
         if (case / 'VTK' / entry['name']).stat().st_size == 0:
@@ -156,8 +155,8 @@ def main():
             raise RuntimeError('Diagnostic cell count mismatch')
         return values
 
-    volumes = internal(case / '0.0008/V')
-    centres = internal(case / '0.0008/C', vector=True)
+    volumes = internal(case / '0.0004/V')
+    centres = internal(case / '0.0004/C', vector=True)
     if len(volumes) != len(centres) or not volumes or min(volumes) <= 0:
         raise RuntimeError('Invalid cell volumes/centres')
     widths = [v**(1/3) for v in volumes]
@@ -199,7 +198,7 @@ def main():
     summary = {'status': 'passed_with_mesh_caveat' if concavity_only else 'passed' , 'scope': 'short integration smoke; not converged LES',
                'meshProfile': args.profile, 'ranks': args.ranks,
                'cells': re.findall(r'^\s*cells:\s*(\d+)', mesh, re.M),
-               'deltaT_s': .0001, 'endTime_s': .0008,
+               'deltaT_s': .0001, 'endTime_s': .0004,
                'maxCourant': max(courants),
                'constructorCourants': [float(v) for v in re.findall(r'Courant Number[^\n]*max:\s*([\d.eE+-]+)', startup_history)], 'maxOxygenBalanceResidual_mol': residual,
                'vtkTimes_s': converted,

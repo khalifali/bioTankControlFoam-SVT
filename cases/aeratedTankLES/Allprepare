@@ -68,6 +68,10 @@ abort
     executeInterval 1;
 }
 FUNCTIONS
+# The upstream MRF and shaft BCs include this shared file. Match the initial
+# controller command before solver construction, avoiding an artificial first
+# flux-frame conversion from the tutorial's 500 rpm to the ramp's zero speed.
+foamDictionary "$target/constant/rotatingZoneProperties" -entry omega -set 0
 # Start from rest, ramp to 500 rpm, then introduce aeration. A discontinuous
 # full-speed/full-flow start can produce nonphysical pressure transients.
 foamDictionary "$target/constant/bioProperties" -entry controller -set prescribed

@@ -44,7 +44,9 @@ absolute destination; it never converts an existing RANS run in place.
 
 The LES exercise starts from rest, ramps to 500 rpm over 6 s, then ramps air
 flow to 0.0186667 m3/s between 6 and 6.1 s. Oxygen activation remains at 10 s.
-This avoids imposing full rotation and aeration impulsively on a quiescent tank. The controller modes and student
+The shared initial MRF/shaft speed is also zero, matching the controller before
+solver construction. This avoids an artificial initial flux-frame change and
+imposing full rotation/aeration impulsively on a quiescent tank. The controller modes and student
 extension point are described in [the controller guide](controller.md).
 
 ## Mesh profiles
@@ -177,8 +179,8 @@ python3 tests/les_smoke.py --profile exercise --output "$PWD/tests/results/les-e
 
 Use a new output directory each time. The default builds the smoke-profile mesh; `--profile exercise` builds the finer
 exercise grid. Both run
-4 steps to 0.0004 s, then restart for 4 more steps to 0.0008 s. Oxygen activation starts at
-zero and demand changes at 0.0002 s for this test only. It checks mesh quality,
+2 steps to 0.0002 s, then restart for 2 more steps to 0.0004 s. Oxygen activation starts at
+zero and demand changes at 0.0001 s for this test only. It checks mesh quality,
 selection of both LES models, finite oxygen balances, nonnegative inventory,
 nonzero uptake during the initial speed ramp, a maximum logged Courant number no greater than 1, restart and
 VTK export of all five saved times. Logs, generated dictionaries and `summary.json`

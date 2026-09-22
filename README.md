@@ -131,8 +131,12 @@ The helper targets this fixed-mesh, single-region tank and its standard
 ## LES exercise
 
 A separate [LES-MRF exercise](docs/les-exercise.md) provides multiphase LES models,
-volume-refined meshing profiles and a short native integration check. The default
-RANS exercise remains unchanged. Read the LES limitations before using its output.
+volume-refined meshing profiles, higher-order numerics and native verification.
+It uses coupled midpoint oxygen integration and BDF2 where supported by the flow
+solver. OpenFOAM's internal phase-fraction update remains Euler-based: this is
+not a fully second-order two-fluid solver. The default RANS exercise remains
+unchanged. Read the LES mesh, wall-treatment and accuracy limits before using
+its output.
 
 ## Read before interpreting results
 
