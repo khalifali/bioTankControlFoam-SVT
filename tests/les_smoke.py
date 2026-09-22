@@ -56,6 +56,7 @@ def main():
         setentry('constant/bioProperties', key, '[0 0 1 0 0 0 0] ' + value)
     run('mesh', ['bash', './Allmesh'], case)
     mesh = (case / 'log.checkMesh').read_text()
+    print(mesh, flush=True)
     if 'Mesh OK' not in mesh:
         raise RuntimeError('Mesh check did not report Mesh OK')
     run('solve', ['bash', './Allrun'], case)
