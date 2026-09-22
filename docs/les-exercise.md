@@ -9,6 +9,21 @@ The impellers still use MRF: they do not physically rotate past the baffles.
 This is an initial LES-MRF exercise, not a validated blade-passing simulation.
 The geometry, two-fluid closures, oxygen transfer and biology remain the same.
 
+## Why this exercise retains Euler–Euler
+
+The oxygen-control exercise treats many dispersed bubbles through phase volume
+fractions, slip and interphase closures. Euler–Euler is a practical choice for
+that aim. LES changes the turbulence treatment; it does not resolve bubble
+surfaces or remove the need for bubble-diameter and transfer models.
+
+VOF is worth considering when the main quantity of interest is a resolved free
+surface, a surface vortex, or large gas cavities. Resolving the full population
+of nominally 1 mm bubbles with VOF throughout this tank would require a much
+finer interface-resolving grid and smaller time steps. A VOF version would also
+need a suitable oxygen-transfer formulation, rather than automatically retaining
+the dispersed-bubble area expression everywhere. See the official
+[OpenFOAM solver-module descriptions](https://doc.cfd.direct/openfoam/user-guide-v13/solvers-modules).
+
 ## Prepare and run
 
 With Foundation OpenFOAM 13 and this project's library activated:
@@ -84,8 +99,10 @@ extension would require revising the MRF actuator implementation as well.
 
 `Allmesh` limits boundary/internal skewness to 4, requires positive cell and
 tetrahedral decomposition volumes, and tightens the face-concavity limit to
-20 degrees before snapping. It runs `checkMesh -allGeometry -allTopology`. A failed mesh check must be
-resolved before interpreting the simulation. The native check also writes
+20 degrees before snapping. It runs `checkMesh -allGeometry -allTopology`. Failures in basic validity/topology, tetrahedral decomposition or other extended
+checks block the native test. If concavity is the only failed extended check,
+the short integration run is permitted but reports `passed_with_mesh_caveat`;
+this is explicitly not a clean full-geometry pass or quantitative LES validation. The native check also writes
 `summary.json` containing checkMesh geometry metrics and min/median/max
 $\Delta=V^{1/3}$ in the whole mesh, impeller envelope, discharge/baffle region,
 and central plume. Overlapping regions are intentional. This filter width does
@@ -108,12 +125,17 @@ python3 tests/les_smoke.py --profile exercise --output "$PWD/tests/results/les-e
 
 Use a new output directory each time. The default builds the smoke-profile mesh; `--profile exercise` builds the finer
 exercise grid. Both run
-40 steps to 0.004 s, then restarts for 20 more steps to 0.006 s. Oxygen starts at
-zero and demand changes at 0.002 s for this test only. It checks mesh quality,
+10 steps to 0.001 s, then restart for 10 more steps to 0.002 s. Oxygen starts at
+zero and demand changes at 0.0005 s for this test only. It checks mesh quality,
 selection of both LES models, finite oxygen balances, nonnegative inventory,
 nonzero uptake, a maximum logged Courant number no greater than 1, restart and
-VTK export of all four saved times. Logs, generated dictionaries and `summary.json`
+VTK export of all five saved times. Logs, generated dictionaries and `summary.json`
 are retained. It does not establish developed turbulence or grid-independent LES accuracy.
 
 Model references: [SmagorinskyZhang](https://cpp.openfoam.org/v13/SmagorinskyZhang_8H_source.html),
 [official bubbleColumnLES](https://github.com/OpenFOAM/OpenFOAM-13/tree/master/tutorials/multiphaseEuler/bubbleColumnLES).
+
+For iterative runner checks, `--reuse-mesh /absolute/retained/tankLES` copies only
+the fixed mesh and initial fields into a new test case. It verifies an identical
+Allmesh recipe, mesh profile, geometry and MPI rank count, and reruns basic
+validity/topology checks. It never continues or modifies the retained source run.

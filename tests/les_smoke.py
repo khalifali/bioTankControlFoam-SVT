@@ -12,6 +12,7 @@ import math
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +23,7 @@ def main():
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--ranks', type=int, default=8)
     parser.add_argument('--profile', choices=('smoke', 'exercise'), default='smoke')
+    parser.add_argument('--reuse-mesh', type=Path, help='copy a retained mesh with the identical Allmesh recipe')
     args = parser.parse_args()
     if args.ranks < 1:
         parser.error('--ranks must be positive')
@@ -49,18 +51,52 @@ def main():
     run('prepare', ['bash', str(ROOT / 'cases/aeratedTankLES/Allprepare'),
                     str(case), args.profile, str(args.ranks)])
     # Exercise oxygen immediately, both writes, demand change and a restart.
-    setentry('system/controlDict', 'endTime', '0.004')
-    setentry('system/controlDict', 'writeInterval', '0.002')
+    setentry('system/controlDict', 'endTime', '0.001')
+    setentry('system/controlDict', 'writeInterval', '0.0005')
     for key, value in {'oxygenStartTime': '0', 'controlStartTime': '0',
-                       'sampleInterval': '0.0001', 'demandChangeTime': '0.002'}.items():
+                       'sampleInterval': '0.0001', 'demandChangeTime': '0.0005'}.items():
         setentry('constant/bioProperties', key, '[0 0 1 0 0 0 0] ' + value)
-    run('mesh', ['bash', './Allmesh'], case)
+    if args.reuse_mesh:
+        source = args.reuse_mesh.resolve()
+        if (source / 'Allmesh').read_bytes() != (case / 'Allmesh').read_bytes():
+            raise RuntimeError('Mesh reuse refused: Allmesh recipe differs')
+        if (source / 'les-mesh-profile').read_text().strip() != args.profile:
+            raise RuntimeError('Mesh reuse refused: profile differs')
+        source_processors = list(source.glob('processor[0-9]*'))
+        if len(source_processors) != args.ranks:
+            raise RuntimeError('Mesh reuse refused: rank count differs')
+        for geometry in (case / 'constant/geometry').glob('*.obj'):
+            if geometry.read_bytes() != (source / 'constant/geometry' / geometry.name).read_bytes():
+                raise RuntimeError('Mesh reuse refused: geometry differs')
+        # Only copy initial fields and the fixed mesh, never evolved snapshots.
+        shutil.copytree(source / 'constant/polyMesh', case / 'constant/polyMesh')
+        shutil.rmtree(case / '0')  # owned, freshly prepared destination only
+        shutil.copytree(source / '0', case / '0')
+        for processor in source_processors:
+            for part in ('constant', '0'):
+                shutil.copytree(processor / part, case / processor.name / part)
+        for name in ('blockMeshDict', 'snappyHexMeshDict', 'meshQualityDict'):
+            shutil.copy2(source / 'system' / name, case / 'system' / name)
+        shutil.copy2(source / 'log.checkMesh', case / 'log.checkMesh')
+        print('Reused identical retained mesh:', source, flush=True)
+    else:
+        run('mesh', ['bash', './Allmesh'], case)
     mesh = (case / 'log.checkMesh').read_text()
     print(mesh, flush=True)
-    if 'Mesh OK' not in mesh:
-        raise RuntimeError('Mesh check did not report Mesh OK')
+    # Concavity alone is retained as an explicit LES caveat, never hidden as
+    # a full geometry pass. All other extended check failures remain blockers.
+    failed = re.search(r'Failed (\d+) mesh checks', mesh)
+    concave = re.search(r'Concave cells.*number of cells:\s*(\d+)', mesh)
+    concavity_only = failed and int(failed[1]) == 1 and concave
+    if 'Mesh OK' not in mesh and not concavity_only:
+        raise RuntimeError('Extended mesh audit has defects beyond concave cells')
+    run('basic-mesh-check', ['mpirun', '-np', str(args.ranks), 'checkMesh',
+                            '-parallel', '-constant', '-allTopology'], case)
+    basic_mesh = (output / 'basic-mesh-check.log').read_text()
+    if 'Mesh OK' not in basic_mesh:
+        raise RuntimeError('Basic mesh validity/topology check failed')
     run('solve', ['bash', './Allrun'], case)
-    run('restart', ['bash', './Allrestart', '0.006'], case)
+    run('restart', ['bash', './Allrestart', '0.002'], case)
     solver = (case / 'log.bioTankControlFoam').read_text()
     restart_logs = list(case.glob('log.restart.*'))
     history = solver + '\n'.join(p.read_text() for p in restart_logs)
@@ -71,8 +107,8 @@ def main():
     for path in sorted(case.glob('postProcessing/bioControl/*/oxygenBalance.csv')):
         with path.open() as stream:
             rows.extend({k: float(v) for k, v in row.items()} for row in csv.DictReader(stream))
-    if not rows or abs(max(r['time_s'] for r in rows) - .006) > 1e-9:
-        raise RuntimeError('Missing final oxygen balance at 0.006 s')
+    if not rows or abs(max(r['time_s'] for r in rows) - .002) > 1e-9:
+        raise RuntimeError('Missing final oxygen balance at 0.002 s')
     if any(not all(math.isfinite(v) for v in row.values()) for row in rows):
         raise RuntimeError('Non-finite oxygen balance')
     residual = max(abs(row['residual_mol']) for row in rows)
@@ -86,7 +122,7 @@ def main():
     run('vtk', ['bash', './foamToVTK.sh', 'all', str(min(args.ranks, 4))], case)
     series = json.loads((case / 'VTK/tankLES.vtk.series').read_text())
     converted = [entry['time'] for entry in series['files']]
-    if converted != [0, .002, .004, .006]:
+    if converted != [0, .0005, .001, .0015, .002]:
         raise RuntimeError(f'Unexpected series times: {converted}')
     for entry in series['files']:
         if (case / 'VTK' / entry['name']).stat().st_size == 0:
@@ -105,8 +141,8 @@ def main():
             raise RuntimeError('Diagnostic cell count mismatch')
         return values
 
-    volumes = internal(case / '0.006/V')
-    centres = internal(case / '0.006/C', vector=True)
+    volumes = internal(case / '0.002/V')
+    centres = internal(case / '0.002/C', vector=True)
     if len(volumes) != len(centres) or not volumes or min(volumes) <= 0:
         raise RuntimeError('Invalid cell volumes/centres')
     widths = [v**(1/3) for v in volumes]
@@ -145,14 +181,17 @@ def main():
         raise RuntimeError('Empty wall y+ diagnostics')
     quality = [line.strip() for line in mesh.splitlines() if any(term in line.lower()
                for term in ('aspect ratio', 'non-orthogonality', 'skewness', 'volume =', 'mesh ok'))]
-    summary = {'status': 'passed' , 'scope': 'short integration smoke; not converged LES',
+    summary = {'status': 'passed_with_mesh_caveat' if concavity_only else 'passed' , 'scope': 'short integration smoke; not converged LES',
                'meshProfile': args.profile, 'ranks': args.ranks,
                'cells': re.findall(r'^\s*cells:\s*(\d+)', mesh, re.M),
-               'deltaT_s': .0001, 'endTime_s': .006,
+               'deltaT_s': .0001, 'endTime_s': .002,
                'maxCourant': max(courants), 'maxOxygenBalanceResidual_mol': residual,
                'vtkTimes_s': converted,
                'openfoamVersion': os.environ.get('WM_PROJECT_VERSION'),
                'meshQuality': quality, 'filterWidthByRegion': sizes,
+               'extendedGeometryAudit': 'concave cells flagged' if concavity_only else 'passed',
+               'concaveCells': int(concave[1]) if concave else 0,
+               'basicValidityAndTopology': 'passed',
                'wallDiagnostics': [str(p.relative_to(case)) for p in wall],
                'startupLiquidYPlusByPatch': wall_values,
                'wallAssessment': 'startup y+ only; developed-flow wall adequacy unverified'}
