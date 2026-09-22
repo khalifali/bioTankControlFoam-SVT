@@ -82,7 +82,9 @@ extension would require revising the MRF actuator implementation as well.
 
 ## Mesh quality and resolution report
 
-`Allmesh` runs `checkMesh -allGeometry -allTopology`. A failed mesh check must be
+`Allmesh` limits boundary/internal skewness to 4, requires positive cell and
+tetrahedral decomposition volumes, and tightens the face-concavity limit to
+20 degrees before snapping. It runs `checkMesh -allGeometry -allTopology`. A failed mesh check must be
 resolved before interpreting the simulation. The native check also writes
 `summary.json` containing checkMesh geometry metrics and min/median/max
 $\Delta=V^{1/3}$ in the whole mesh, impeller envelope, discharge/baffle region,

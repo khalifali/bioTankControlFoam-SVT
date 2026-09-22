@@ -49,6 +49,15 @@ snappyHexMeshConfig -cylindricalBackground \
     -refinementBoxes "$boxes" \
     -nCellsBetweenLevels 4 \
     -baffles 'baffles' > log.snappyHexMeshConfig 2>&1
+# Tighten tutorial defaults: checkMesh flags boundary skewness above 4,
+# while the upstream generator permits 20 and disables tet/volume checks.
+foamDictionary system/meshQualityDict -entry maxBoundarySkewness -set 4
+foamDictionary system/meshQualityDict -entry maxInternalSkewness -set 4
+foamDictionary system/meshQualityDict -entry minTetQuality -set 1e-15
+foamDictionary system/meshQualityDict -entry minVol -set 1e-16
+foamDictionary system/meshQualityDict -entry maxConcave -set 20
+foamDictionary system/snappyHexMeshDict -entry snapControls/nSmoothPatch -set 5
+foamDictionary system/snappyHexMeshDict -entry snapControls/nRelaxIter -set 10
 # Generated dictionaries remain visible and are included in smoke-test artifacts.
 # Wall layers are not claimed as resolved; assess y+ before using this for LES data.
 
