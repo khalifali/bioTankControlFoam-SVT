@@ -117,26 +117,143 @@ No biomass growth, substrate depletion or temperature dependence is solved.
 
 ## Gas-to-liquid oxygen transfer
 
-The baseline uses the familiar spherical-particle Sherwood approximation
-Sh=2+0.6 sqrt(Re) Sc^(1/3), kL=Sh D/db, Re=|Ug-Ul|db/nu, Sc=nu/D.
-It is a documented starting closure, not a validated universal bubble correlation:
-interface mobility, contamination, bubble shape and turbulence can change transfer.
-Reference origin: Ranz and Marshall, *Evaporation from drops*, Chemical Engineering
-Progress 48 (1952), 141–146 and 173–180. The mass-transfer analogy is an approximation.
+The model separates **equilibrium**, **transfer speed** and **available bubble
+area**. The source entering the oxygen balance is
 
-Use a=6 alpha_g/db in dispersed gas. A cubic smooth taper is one below gas fraction
-fadeBegin and zero above fadeEnd. This prevents applying a dispersed-bubble area
-to the gas-filled headspace. It also omits transfer at segregated/free surfaces
-and gas cavities; the blend thresholds need sensitivity testing. A separate
-free-surface transfer closure is not supplied.
+$$
+S_{\mathrm{transfer}}=k_L a(C^*-C).
+$$
 
-Cstar=Hcp*yO2*pAbsolute. Hcp [mol/(m3 Pa)] is the concentration/pressure convention,
-not its reciprocal. The illustrative constant gives about 0.25 mol/m3 at room
-temperature and atmospheric air. It must be calibrated for the actual temperature,
-medium and organism. `p` is absolute in the official case; pressureOffset is zero.
-Fixed yO2=0.21 neglects oxygen depletion in air bubbles. Negative net transfer is
-allowed for supersaturated water. Liquid supply is accounted as transfer from an
-assumed gas reservoir; there is no claimed gas-plus-liquid oxygen balance.
+It has units mol O2/(m3 mixture s). It is positive for undersaturated liquid,
+zero at saturation, and negative for supersaturated liquid (oxygen stripping).
+`kL*a` is calculated locally from the flow; it is not a constant entered in
+`bioProperties`.
+
+### 1. Equilibrium: Henry's law
+
+$$
+C^*=H_{cp}\,y_{O_2}\,(p+\mathrm{pressureOffset}).
+$$
+
+The product of oxygen mole fraction and absolute pressure is oxygen partial
+pressure. Henry's law relates that partial pressure to the equilibrium dissolved
+concentration in a dilute solution at fixed temperature. `henrySolubility` is
+$H_{cp}$ in mol/(m3 Pa), the concentration/pressure convention, not its reciprocal.
+`gasOxygenFraction` supplies $y_{O_2}$. The official case uses absolute `p`, so
+`pressureOffset` is zero: do not add atmospheric pressure again.
+
+With the defaults and 101325 Pa, $C^* = 1.175\times10^{-5}\times0.21\times101325
+\approx0.250$ mol/m3 liquid, or about 8 mg/L. This is equilibrium with the assumed
+air composition, not the concentration the tank necessarily reaches while cells
+consume oxygen. Temperature and medium affect solubility; the constant must be
+chosen for the intended experiment.
+
+### 2. Transfer speed: a Sherwood closure
+
+$$
+Re_b=\frac{|\mathbf U_g-\mathbf U_L|d_b}{\nu_L},\qquad
+Sc=\frac{\nu_L}{D},\qquad
+Sh=2+0.6\sqrt{Re_b}\,Sc^{1/3},\qquad
+k_L=\frac{Sh\,D}{d_b}.
+$$
+
+| Symbol | Meaning | Source in the model |
+|---|---|---|
+| $d_b$ | Bubble diameter [m] | Gas phase diameter model; baseline 1 mm |
+| $\nu_L$ | Liquid kinematic viscosity [m2/s] | Liquid dynamic viscosity divided by density |
+| $D$ | Molecular oxygen diffusivity [m2/s] | `molecularDiffusivity` |
+| $Re_b$ | Slip Reynolds number [-] | Relative gas/liquid velocity |
+| $Sc$ | Schmidt number [-] | Momentum diffusivity divided by molecular mass diffusivity |
+| $Sh$ | Sherwood number [-] | Dimensionless mass-transfer coefficient |
+| $k_L$ | Liquid-side transfer coefficient [m/s] | Calculated from $ShD/d_b$ |
+
+The value 2 is the diffusion-only spherical limit in this closure. The additional
+term represents enhanced transfer with relative motion. This is a
+Ranz–Marshall-style approximation, implemented in the solver, rather than a
+universal bubble correlation: interface mobility, contamination, deformation and
+turbulence can change transfer. Its historical origin is Ranz and Marshall,
+*Evaporation from drops*, Chemical Engineering Progress 48 (1952), 141–146 and
+173–180; the bubble mass-transfer analogy requires validation.
+
+Do not substitute `turbulentSchmidt` for $Sc$ here. That setting controls bulk
+oxygen mixing through $D_{\mathrm{eff}}=D+\nu_t/Sc_t$; this interfacial closure
+uses molecular $D$ and molecular liquid viscosity.
+
+### 3. Bubble area and the headspace taper
+
+For spherical bubbles, surface area divided by bubble volume is
+$\pi d_b^2/(\pi d_b^3/6)=6/d_b$. Multiplying by gas volume fraction gives area
+per mixture volume. The implemented expression is
+
+$$
+a=\frac{6\alpha_g}{d_b}w(\alpha_g),\qquad
+w=1-3x^2+2x^3,\qquad
+x=\mathrm{clamp}\!\left(
+\frac{\alpha_g-\mathrm{fadeBegin}}{\mathrm{fadeEnd}-\mathrm{fadeBegin}},0,1\right).
+$$
+
+Thus $a$ has units m2/m3 mixture. Below `fadeBegin`, $w=1$; above `fadeEnd`,
+$w=0$. The taper avoids treating the gas-filled headspace as dispersed bubbles.
+It also omits transfer at segregated/free surfaces and gas cavities; no separate
+free-surface closure is supplied. Test sensitivity to the thresholds.
+
+For example, $\alpha_g=0.1$ and $d_b=0.001$ m give $a=600$ m2/m3 mixture.
+If the local calculated $k_L$ were $10^{-4}$ m/s, then $k_La=0.06$ s−1.
+At $C^*=0.25$ and $C=0.15$ mol/m3 liquid, supply would be
+$0.06(0.25-0.15)=0.006$ mol/(m3 mixture s). The chosen $k_L$ in this example is
+illustrative; the actual solver calculates it from the local flow.
+
+Because area is already per mixture volume, do not multiply this source by
+$\alpha_L$ again. A coefficient reported per liquid volume would instead be
+$k_La/\alpha_L$ in cells with nonzero liquid fraction. Keep this convention in
+mind when comparing experimental vessel-average `kLa` values.
+
+Fixed `gasOxygenFraction = 0.21` neglects bubble oxygen depletion. Supply is
+accounted as transfer from an assumed gas reservoir; there is no transported
+gas oxygen inventory or claimed combined gas-plus-liquid oxygen balance.
+
+## Biology: oxygen-limited uptake
+
+The model uses a Monod-type saturating uptake law:
+
+$$
+r_L=m(t)q_{\max}X\frac{C}{K_O+C},\qquad
+S_{\mathrm{biology}}=-\alpha_Lr_L.
+$$
+
+Here $r_L$ is positive consumption per liquid volume, while
+$S_{\mathrm{biology}}$ is the negative source per mixture volume used in the
+transport equation. `biomass` supplies $X$ [kg biomass/m3 liquid],
+`specificUptake` supplies $q_{\max}$ [mol O2/(kg biomass s)], and
+`halfSaturation` supplies $K_O$ [mol/m3 liquid]. $m(t)$ is 1 before
+`demandChangeTime` and `demandMultiplier` for intervals starting at or after that
+time. Reactions remain off until `oxygenStartTime`.
+
+This empirical law represents limited uptake when oxygen is scarce. At zero
+oxygen it gives zero uptake; at $C=K_O$ uptake is half the current maximum;
+at high $C$ it approaches $m q_{\max}X$. At low $C$, the factor is approximately
+$C/K_O$. It does not subtract a fixed amount regardless of oxygen availability.
+Biomass is uniform and prescribed: there is no growth equation, substrate
+limitation, cell death or transported biomass. The demand step is an imposed
+disturbance, not simulated growth.
+
+For the default $q_{\max}X=0.002$ and $C=0.15$, uptake before the demand step is
+$0.002\times0.15/(0.01+0.15)=0.001875$ mol/(m3 liquid s). In a cell with
+$\alpha_L=0.9$, the mixture-volume sink is $-0.0016875$ mol/(m3 mixture s).
+At 30 s the demand factor becomes 1.5, increasing uptake by 50% **at the same
+concentration**. The concentration then evolves with transport and transfer.
+
+In a well-mixed region with constant liquid fraction and no external transport,
+a stationary balance requires $k_La(C^*-C)=\alpha_Lr_L$. Positive uptake therefore
+requires concentration below saturation when bubble transfer provides the supply.
+Increasing gas flow or stirring changes flow, area and transfer; it does not
+set $C$ directly. Spatially nonuniform tanks can still contain oxygen-poor regions.
+
+`criticalOxygen` is a separate evaluation threshold. It neither changes the
+Monod curve nor sets the student's control target. Reduced consumption caused
+by starvation is not evidence of successful control. See the
+[worked uptake examples](aerated-tank-walkthrough.md#microbial-uptake-what-the-sink-term-does)
+and [mode selection](controller.md#choose-the-operating-mode).
 
 ## Numerical treatment and inventory
 

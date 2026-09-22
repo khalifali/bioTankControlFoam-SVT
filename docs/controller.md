@@ -33,6 +33,36 @@ fluxes are transformed from the previous frame to the new frame. Shaft
 rotatingWallVelocity conditions are updated too. Gas commands rebuild the
 flowRateInletVelocity inlet condition. Geometry, axes and zone names are retained.
 
+## Choose the operating mode
+
+Edit `constant/bioProperties` in the prepared run before starting a fresh case.
+The file groups shared actuator settings separately from mode-only settings.
+Use one `controller` entry; the inactive mode's entries may remain in the file.
+
+| Mode | What to edit | What determines commands | Ignored mode-only settings |
+|---|---|---|---|
+| `constant` | `initialOmega`, `initialGasFlow` | Holds initial commands (restored commands on restart) | `schedule`, `studentLibrary`, `controlStartTime` |
+| `prescribed` | `schedule`, plus initial commands | Interpolated schedule at sample times from the beginning | `studentLibrary`, `controlStartTime` |
+| `student` | Controller source, `studentLibrary`, initial commands, `controlStartTime` | Holds initial/restored commands until activation; then calls `update()` at sample times | `schedule` |
+
+`actuatorsEnabled`, `gasInlet`, bounds and rate limits are shared across modes.
+`sampleInterval` sets the sampling cadence. `actuatorsEnabled false` bypasses
+application of commands to MRF and the inlet; it is not a fourth controller mode.
+`oxygenStartTime` controls oxygen physics independently of actuator mode.
+With the default `initialGasFlow = 0`, switching to constant mode means no air
+injection; student mode also starts without air until the controller changes it.
+
+To implement student feedback:
+
+1. Fill in `update()` in [studentController/StudentController.C](../studentController/StudentController.C),
+   relative to the repository root. The template returns the previous commands.
+2. Activate the installation and run `./Allwmake` from the repository root.
+3. In the prepared run's `constant/bioProperties`, set `controller student;`,
+   check `studentLibrary`, and choose initial commands and activation time.
+4. Start a fresh case with `./Allmesh` and `./Allrun`; inspect `actuators.csv`
+   to compare requested and applied commands. Follow the restart rules above
+   when continuing a compatible existing case.
+
 ## Optional PI example
 
 Change the source line in `studentController/Make/files` to

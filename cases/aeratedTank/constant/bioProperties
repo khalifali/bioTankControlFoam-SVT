@@ -36,7 +36,11 @@ residualCapacity        [0 0 0 0 0 0 0] 1e-8;
 // 3. Transfer
 // ---------------------------------------------------------------------------
 
-// TRANSFER: C* = Hcp * yO2 * (p + pressureOffset).
+// TRANSFER: S_transfer = kL*a*(C* - C), per m3 mixture.
+// C* = Hcp * yO2 * (p + pressureOffset).
+// kL = D*Sh/db; Sh = 2 + 0.6*sqrt(Re)*Sc^(1/3).
+// a = 6*alphaGas/db times the fade weight. db comes from the phase model.
+// Theory, symbols and assumptions: docs/model.md (repository root).
 // Hcp is mol/(m3 Pa) at approximately room temperature; fixed temperature.
 // Chosen to give C* ~= 0.25 mol/m3 at atmospheric pressure in air.
 henrySolubility         [-1 -2 2 0 1 0 0] 1.175e-5;
@@ -53,7 +57,11 @@ fadeEnd                 [0 0 0 0 0 0 0] 0.7;
 // ---------------------------------------------------------------------------
 
 // BIOLOGY: example values, not a calibrated organism or growth model.
+// r_liquid = m(t)*qmax*X*C/(KO+C); equation sink = -alphaLiquid*r_liquid.
 // qmax*X = 0.002 mol/(m3 liquid s). Biomass is uniform and prescribed.
+// m(t) changes from 1 to demandMultiplier at demandChangeTime.
+// halfSaturation is KO; criticalOxygen only evaluates oxygen deficiency.
+// Worked examples: docs/aerated-tank-walkthrough.md, "Microbial uptake".
 biomass                 [1 -3 0 0 0 0 0] 1;
 specificUptake          [-1 0 -1 0 1 0 0] 0.002;
 halfSaturation          [0 -3 0 0 1 0 0] 0.01;
@@ -76,13 +84,23 @@ sampleInterval          [0 0 1 0 0 0 0] 0.1;
 // 6. Actuators
 // ---------------------------------------------------------------------------
 
-// ACTUATORS: omega in rad/s, Q in m3/s at inlet conditions (not standard litres).
-actuatorsEnabled    true;
+// 6a. MODE SELECTION AND SHARED SETTINGS (all three modes)
+// omega is rad/s; Q is m3/s at inlet conditions, not standard litres.
+// Choose exactly one: constant | prescribed | student.
+controller          prescribed;
+actuatorsEnabled    true;  // false disables applying commands to MRF/inlet
 gasInlet            inlet;
-controller          prescribed; // constant | prescribed | student
-studentLibrary      "$FOAM_USER_LIBBIN/libbioStudentController.so";
+
+// Initial commands: used by ALL modes on a fresh run; restored on restart.
+// CONSTANT: these are the held operating values for the entire fresh run.
+// PRESCRIBED: these initialise the actuators before sampled schedule commands.
+// STUDENT: these are held until controlStartTime; the schedule is NOT used.
+// With initialGasFlow=0, constant mode has no aeration; student mode has none
+// until the student's controller requests it. Set a nonzero value if desired.
 initialOmega            [0 0 -1 0 0 0 0] 52.35987755982988; // 500 rpm
 initialGasFlow          [0 3 -1 0 0 0 0] 0;
+
+// Bounds and slew limits apply to commands in ALL modes.
 // Stirrer bounds [rad/s] and rate limit [rad/s2].
 minOmega                [0 0 -1 0 0 0 0] 0;
 maxOmega                [0 0 -1 0 0 0 0] 62.83185307179586;
@@ -94,10 +112,19 @@ maxGasFlow              [0 3 -1 0 0 0 0] 0.025;
 gasFlowRate             [0 3 -2 0 0 0 0] 0.2;
 
 // ---------------------------------------------------------------------------
-// Prescribed operating schedule
+// 6b. CONSTANT MODE: controller constant;
 // ---------------------------------------------------------------------------
+// Set initialOmega and initialGasFlow above. No additional mode-only entries.
+// Holds the initial/restored commands; ignores schedule and studentLibrary.
+// Does not wait for controlStartTime.
 
-// Rows: (time_s omega_rad_s Q_m3_s). Linear interpolation, end values held.
+// ---------------------------------------------------------------------------
+// 6c. PRESCRIBED MODE ONLY: controller prescribed;
+// ---------------------------------------------------------------------------
+// schedule is ignored in constant and student modes.
+// Rows: (time_s omega_rad_s Q_m3_s). Linear interpolation at sampleInterval;
+// end values are held. Bounds/slew limits still apply. No feedback is used.
+// Runs from the beginning, independently of controlStartTime.
 // Match the official delayed aeration: 1.12 m3/min = 0.0186667 m3/s.
 schedule
 (
@@ -106,6 +133,19 @@ schedule
     (5.1 52.35987755982988 0.0186666666666667)
     (60  52.35987755982988 0.0186666666666667)
 );
+
+// ---------------------------------------------------------------------------
+// 6d. STUDENT MODE ONLY: controller student;
+// ---------------------------------------------------------------------------
+// STUDENT TASK: implement update() in studentController/StudentController.C
+// (path relative to the repository root, NOT this prepared run directory).
+// Build with ./Allwmake from the activated repository root before running.
+// The shipped template only holds the previous applied commands: selecting
+// student alone does not implement feedback. See docs/controller.md.
+// Calls update() at sampleInterval from controlStartTime onwards; before that,
+// holds initial/restored commands. The prescribed schedule never runs here.
+// studentLibrary is loaded only in student mode; ignored by the other modes.
+studentLibrary      "$FOAM_USER_LIBBIN/libbioStudentController.so";
 
 // ---------------------------------------------------------------------------
 // 7. Measurements

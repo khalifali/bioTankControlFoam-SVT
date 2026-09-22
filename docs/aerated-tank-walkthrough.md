@@ -323,6 +323,46 @@ No recompilation is required. An already-running case without this function
 will not gain it merely by pulling repository updates.
 Reference: [Foundation OF13 stopAtFile](https://cpp.openfoam.org/v13/stopAtFile_8H_source.html).
 
+## Export every saved time to VTK
+
+`Allrun` and `Allrestart` reconstruct only the latest time. To reconstruct missing
+or partial times and export the whole saved history, stop the solver, activate
+Foundation OpenFOAM 13, and run from the prepared case:
+
+```bash
+cd runs/tank
+./foamToVTK.sh all 8
+```
+
+`Allprepare` copies the helper into new runs. For an older run, copy
+[`cases/aeratedTank/foamToVTK.sh`](../cases/aeratedTank/foamToVTK.sh) into its root
+beside `system/` and `constant/`. The script always uses its own directory as the
+case, even when invoked from elsewhere. Python 3.9 or newer is required.
+
+Open **`VTK/tank.vtk.series`** in ParaView; replace `tank` with the run directory's
+name. This one index contains all completed internal-mesh exports ordered by
+physical time, including earlier retained VTK output. Patch datasets are separate.
+Display `alpha.gas`, `U.liquid` and `oxygen.liquid` as described below.
+
+| Command | Work performed |
+|---|---|
+| `./foamToVTK.sh` | Full workflow with eight workers |
+| `./foamToVTK.sh all 4` or `./foamToVTK.sh 4` | Full workflow with four workers |
+| `./foamToVTK.sh reconstruct 4` | Reconstruct missing/partial fields only |
+| `./foamToVTK.sh vtk 4` | Convert existing root times and rebuild the index |
+| `./foamToVTK.sh series` | Rebuild the index from existing VTK without OpenFOAM utilities |
+
+Mesh preparation is serial. Workers then run serial utilities on different times
+concurrently: pseudo-parallel processing without MPI. Reduce the worker count
+when memory is limited. The helper supports the fixed-mesh, single-region tank
+with `processorN` storage; collated `processors*` storage is not supported.
+
+Reruns skip complete reconstructed fields and completed nonempty VTK files.
+Failed jobs retain retry markers; inspect per-time logs in `log.foamToVTK/` and
+rerun after fixing the cause. All source and reconstructed time directories are
+preserved. To refresh deliberately changed fields at an exported time, remove
+`VTK/<case>_<time>.vtk` and rerun. Do not rename the case between exports.
+
 ## What to inspect in ParaView
 
 Open `mesh.foam` in the prepared run. After reconstruction, select the

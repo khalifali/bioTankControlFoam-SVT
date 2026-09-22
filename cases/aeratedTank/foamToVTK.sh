@@ -1,6 +1,37 @@
 #!/usr/bin/env bash
 # Adapted from LAMFOAM's postprocessing/foamvtk.sh workflow for Foundation 13.
 # Self-contained so Allprepare can copy it into each run directory.
+#
+# USAGE (after the solver has stopped; activate Foundation OpenFOAM 13 first)
+#   ./foamToVTK.sh all 8        reconstruct missing/partial times, convert, index
+#   ./foamToVTK.sh 4            shorthand for "all 4"
+#   ./foamToVTK.sh reconstruct 4  reconstruct only; no VTK conversion
+#   ./foamToVTK.sh vtk 4        convert already reconstructed/serial times, index
+#   ./foamToVTK.sh series       rebuild index from existing VTK; no OF required
+#   ./foamToVTK.sh --help
+# No arguments means "all 8". Requires Python 3.9+ on Linux.
+#
+# LOCATION AND OUTPUT
+# Allprepare copies this file to new run directories. For an existing run,
+# copy cases/aeratedTank/foamToVTK.sh into its root (beside system/constant).
+# The case is ALWAYS the directory containing this script, not the current
+# working directory. Example: in runs/tank, run ./foamToVTK.sh all 8 and open
+# VTK/tank.vtk.series in ParaView. The basename follows the case directory name.
+# One index covers all completed internal-mesh VTK times, sorted numerically;
+# patch output is separate. Do not rename the case between exports.
+#
+# PSEUDO-PARALLEL WORK AND RERUNS
+# Mesh preparation is serial; each worker runs a serial OpenFOAM utility on a
+# separate saved time (no MPI). Reduce workers if memory is limited. This helper
+# targets the fixed-mesh, single-region tank with processorN storage, not
+# collated processors* storage. It checks multiphase fields, including oxygen.
+# Complete reconstructed times and nonempty completed VTK files are skipped.
+# Failed jobs leave retry markers; per-time logs are in log.foamToVTK/.
+# All original, reconstructed and processor time directories are preserved.
+# If fields at an already exported time change, remove VTK/<case>_<time>.vtk
+# and rerun to refresh it. "series" also includes retained older VTK output
+# whose original time directories no longer exist.
+# See docs/aerated-tank-walkthrough.md in the repository for the full workflow.
 set -euo pipefail
 exec python3 - "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" "$@" <<'PY'
 import concurrent.futures
