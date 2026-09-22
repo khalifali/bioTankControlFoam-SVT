@@ -384,7 +384,7 @@ Such reader errors must be resolved before interpreting the affected fields.
 
 ## Before using the case for thesis conclusions
 
-The default implicit Euler time integration and upwind oxygen advection are
+The default RANS exercise's implicit Euler time integration and upwind oxygen advection are
 robust starting choices. Upwind can smear oxygen-poor regions, while the time
 step and first-order reaction splitting can affect response times. A stable
 run or a passing mesh check alone does not establish accuracy.
@@ -394,7 +394,10 @@ probe concentrations, deficient liquid volume and controller response as
 metrics. Changing the time scheme alone does not automatically make the
 complete split oxygen algorithm second order. Check oxygen positivity and
 inventory conservation too. Read the [verification report](validation.md) to
-distinguish completed checks from remaining physical validation.
+distinguish completed checks from remaining physical validation. The separate
+[LES exercise](les-exercise.md) includes a coupled midpoint oxygen method,
+higher-order spatial schemes and native time-order tests. Its phase-fraction
+update still prevents a full-system second-order time-accuracy claim.
 
 ## Complete bioProperties parameter reference
 
@@ -435,6 +438,7 @@ solver, even if the liquid phase selection is changed.
 
 | Parameter | Default / units | Meaning and effect |
 |---|---|---|
+| `oxygenIntegration` | `splitEuler` if omitted; LES preparation sets `midpoint` | Optional integration method. `splitEuler` retains the positive local implicit reaction split; `midpoint` couples transport and reactions in a second-order scalar step. Midpoint may require a smaller time step for positivity. Preserve the choice on restart; see the [LES numerical method](les-exercise.md#coupled-midpoint-oxygen-update). |
 | `molecularDiffusivity` | 2e-9 m2/s | Molecular diffusion coefficient D. Must be positive. Increasing it strengthens diffusion and also changes the gas-to-liquid transfer calculation, which uses D. |
 | `turbulentSchmidt` | 0.7, dimensionless | Turbulent Schmidt number Sc_t. Turbulent oxygen diffusivity is nut/Sc_t; reducing Sc_t increases turbulent mixing of oxygen for a given eddy viscosity nut. Must be positive. |
 | `residualCapacity` | 1e-8, dimensionless | Minimum numerical storage capacity in nearly gas-only cells: capacity = max(alpha_liquid, residualCapacity). Avoids a singular oxygen equation. It is not a minimum oxygen concentration. Must be greater than zero and at most 1e-3. Its artificial inventory is logged separately. |

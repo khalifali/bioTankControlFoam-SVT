@@ -1,0 +1,15 @@
+/* Gas closure used by the official Foundation 13 bubbleColumnLES tutorial. */
+FoamFile
+{
+    format ascii;
+    class dictionary;
+    object momentumTransport.gas;
+}
+simulationType LES;
+LES
+{
+    model continuousGasKEqn;
+    turbulence on;
+    delta cubeRootVol;
+    cubeRootVolCoeffs {}
+}

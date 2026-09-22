@@ -3,6 +3,8 @@
 #include "bioTankControlFoam.H"
 #include "addToRunTimeSelectionTable.H"
 #include "fvmDdt.H"
+#include "EulerDdtScheme.H"
+#include "fvmSup.H"
 #include "fvmDiv.H"
 #include "fvmLaplacian.H"
 #include "PstreamReduceOps.H"
@@ -41,6 +43,7 @@ bioTankControlFoam::bioTankControlFoam(fvMesh& mesh)
   kla_(IOobject("kLa",runTime.name(),mesh,IOobject::NO_READ,IOobject::AUTO_WRITE),mesh,dimensionedScalar(dimless/dimTime,0)),
   saturation_(IOobject("oxygenEquilibrium",runTime.name(),mesh,IOobject::NO_READ,IOobject::AUTO_WRITE),mesh,dimensionedScalar(dimMoles/dimVolume,0)),
   mode_(cfg_.lookup<word>("controller")),
+  oxygenIntegration_(cfg_.lookupOrDefault<word>("oxygenIntegration","splitEuler")),
   interval_(coeff("sampleInterval",dimTime)),
   lastSample_(state_.lookupOrDefault<scalar>("lastSample",runTime.value())),
   totalSupply_(state_.lookupOrDefault<scalar>("supply",0)),
@@ -53,7 +56,12 @@ bioTankControlFoam::bioTankControlFoam(fvMesh& mesh)
       state_.lookupOrDefault<scalar>("gasFlow",coeff("initialGasFlow",dimVolume/dimTime))}
 {
     if(mesh.dynamic() || !transient() || LTS)
-        FatalErrorInFunction<<"Use a fixed mesh and transient Euler time stepping"<<exit(FatalError);
+        FatalErrorInFunction<<"Use a fixed mesh and transient time stepping without LTS"<<exit(FatalError);
+    if(oxygenIntegration_!="splitEuler" && oxygenIntegration_!="midpoint")
+        FatalErrorInFunction<<"oxygenIntegration must be splitEuler or midpoint"<<exit(FatalError);
+    if(runTime.value()>0 && state_.lookupOrDefault<word>("oxygenIntegration","splitEuler")!=oxygenIntegration_)
+        FatalErrorInFunction<<"Restart must preserve oxygenIntegration"<<exit(FatalError);
+    Info<<"Oxygen integration: "<<oxygenIntegration_<<endl;
     if(!liquid_.isochoric() || !gas_.isochoric() || phases_.size()!=2)
         FatalErrorInFunction<<"Baseline requires two constant-density phases"<<exit(FatalError);
     if(oxygen_.dimensions()!=dimMoles/dimVolume)
@@ -243,7 +251,109 @@ void bioTankControlFoam::actuate() {
         Info<<"bioActuators: omega="<<applied_.omega<<" actualInletGasFlow="<<Q<<" requestedAppliedFlow="<<applied_.gasFlow<<endl;
     }
 }
-void bioTankControlFoam::preSolve(){actuate();multiphaseEuler::preSolve();}
+void bioTankControlFoam::preSolve() {
+    actuate();
+    // foamRun calls preSolve BEFORE advancing time and solving the phases.
+    // Recreate these endpoint coefficients from checkpoint fields on restart.
+    if(oxygenIntegration_=="midpoint" && runTime.value()>=coeff("oxygenStartTime",dimTime)-SMALL) {
+        transferCoefficients();
+        oldDiffusivity_.reset(oxygenDiffusivity().ptr());
+        oldKla_.reset(new volScalarField("oxygenOldKla",kla_));
+        oldSaturation_.reset(new volScalarField("oxygenOldSaturation",saturation_));
+        oldLiquid_.reset(new volScalarField("oxygenOldLiquid",liquid_));
+    }
+    multiphaseEuler::preSolve();
+}
+
+tmp<volScalarField> bioTankControlFoam::oxygenDiffusivity() const {
+    tmp<volScalarField> result=volScalarField::New("oxygenDiffusivity",
+        liquid_*dimensionedScalar(dimArea/dimTime,coeff("molecularDiffusivity",dimArea/dimTime)));
+    const word nutName=IOobject::groupName("nut",liquid_.name());
+    if(mesh.foundObject<volScalarField>(nutName))
+        result.ref()+=liquid_*mesh.lookupObject<volScalarField>(nutName)/coeff("turbulentSchmidt",dimless);
+    return result;
+}
+
+void bioTankControlFoam::transferCoefficients() {
+    const tmp<volScalarField> td=gas_.d(), tmu=liquid_.fluidThermo().mu();
+    const scalar D=coeff("molecularDiffusivity",dimArea/dimTime);
+    const scalar H=coeff("henrySolubility",dimMoles/dimVolume/dimPressure);
+    const scalar y=coeff("gasOxygenFraction",dimless),offset=coeff("pressureOffset",dimPressure);
+    const scalar begin=coeff("fadeBegin",dimless),end=coeff("fadeEnd",dimless);
+    label invalid=0;
+    forAll(oxygen_,i) {
+        const scalar d=td()[i],nu=tmu()[i]/liquid_.rho()[i],pressure=p_[i]+offset;
+        if(d<=0 || nu<=0 || pressure<=0 || !std::isfinite(d+nu+pressure)) {invalid=1;continue;}
+        const scalar Re=mag(gas_.URef()[i]-liquid_.URef()[i])*d/nu;
+        const scalar Sh=2+0.6*sqrt(Re)*cbrt(nu/D);
+        const scalar area=6*gas_[i]/d*bio::dispersedWeight(gas_[i],begin,end);
+        kla_[i]=D*Sh/d*area;
+        saturation_[i]=H*y*pressure;
+        if(!std::isfinite(kla_[i]+saturation_[i]) || kla_[i]<0 || liquid_[i]<0)invalid=1;
+    }
+    reduce(invalid,maxOp<label>());
+    if(invalid) {
+        const scalar minP=gMin(p_.primitiveField())+offset, minD=gMin(td().primitiveField());
+        const scalar minMu=gMin(tmu().primitiveField()),minAg=gMin(gas_.primitiveField());
+        FatalErrorInFunction<<"Invalid transfer state: min absolute p="<<minP
+            <<", min diameter="<<minD<<", min viscosity="<<minMu<<", min alphaGas="<<minAg
+            <<". Check startup, pressure and phase properties."<<exit(FatalError);
+    }
+}
+
+void bioTankControlFoam::oxygenMidpointStep() {
+    if(!oldDiffusivity_.valid())FatalErrorInFunction<<"Missing midpoint endpoint state"<<exit(FatalError);
+    const dimensionedScalar dt(runTime.deltaT());
+    const dimensionedScalar half("halfSaturation",dimMoles/dimVolume,cfg_);
+    scalar q=coeff("specificUptake",dimMoles/dimMass/dimTime)*coeff("biomass",dimMass/dimVolume);
+    // A demand jump is aligned to a step boundary; use the interval's value
+    // for BOTH endpoints, avoiding an artificial half-step across the jump.
+    if(bio::active(runTime.value(),dt.value(),coeff("demandChangeTime",dimTime)))q*=coeff("demandMultiplier",dimless);
+    transferCoefficients();
+    const volScalarField oldC("oxygenStepStart",oxygen_);
+    const volScalarField diffusivity("oxygenDiffusivity",0.5*(oldDiffusivity_()+oxygenDiffusivity()));
+    const volScalarField rate("oxygenMidKla",0.5*(oldKla_()+kla_));
+    const volScalarField supply("oxygenMidSupply",0.5*(oldKla_()*oldSaturation_()+kla_*saturation_));
+    const volScalarField uptake("oxygenMidUptake",0.5*(oldLiquid_()+liquid_)
+        *dimensionedScalar(dimMoles/dimVolume/dimTime,q));
+    const volScalarField storage("oxygenMidStorage",(capacity_+capacity_.oldTime())*oldC/dt);
+    // During this solve oxygen_ denotes M=(C[n+1]+C[n])/2. This conservative
+    // storage form handles changing liquid capacity without operator splitting.
+    // alphaPhi is the phase solver's interval-averaged conservative flux.
+    scalar outward=0; bool converged=false;
+    for(label iteration=0;iteration<50;++iteration) {
+        const scalarField previous(oxygen_.primitiveField());
+        fvScalarMatrix equation(
+            fvm::Sp(2*capacity_/dt+rate+uptake/(half+oxygen_),oxygen_)
+          + fvm::div(liquid_.alphaPhiRef(),oxygen_)
+          - fvm::laplacian(diffusivity,oxygen_) == storage+supply);
+        equation.solve();
+        label invalid=0;
+        forAll(oxygen_,i)if(!std::isfinite(oxygen_[i]) || oxygen_[i]<0)invalid=1;
+        reduce(invalid,maxOp<label>());
+        if(invalid)FatalErrorInFunction<<"Invalid midpoint oxygen iterate; reduce deltaT/check spatial schemes"<<exit(FatalError);
+        const scalar change=gMax(mag(oxygen_.primitiveField()-previous));
+        if(change < 1e-12+1e-10*gMax(mag(oxygen_.primitiveField()))) {
+            const surfaceScalarField flux(equation.flux());
+            forAll(mesh.boundary(),patchi)if(!mesh.boundary()[patchi].coupled())outward+=sum(flux.boundaryField()[patchi]);
+            converged=true;break;
+        }
+    }
+    if(!converged)FatalErrorInFunction<<"Midpoint oxygen iteration did not converge"<<exit(FatalError);
+    scalar supplied=0,consumed=0;label invalid=0;
+    forAll(oxygen_,i) {
+        const scalar mid=oxygen_[i];
+        supplied+=dt.value()*(supply[i]-rate[i]*mid)*mesh.V()[i];
+        consumed+=dt.value()*uptake[i]*mid/(half.value()+mid)*mesh.V()[i];
+        oxygen_[i]=2*mid-oldC[i];
+        if(!std::isfinite(oxygen_[i]) || oxygen_[i]<0)invalid=1;
+    }
+    reduce(invalid,maxOp<label>());
+    if(invalid)FatalErrorInFunction<<"Negative/nonfinite endpoint oxygen; midpoint requires a smaller deltaT (no clipping applied)"<<exit(FatalError);
+    reduce(outward,sumOp<scalar>());reduce(supplied,sumOp<scalar>());reduce(consumed,sumOp<scalar>());
+    totalBoundary_+=dt.value()*outward;totalSupply_+=supplied;totalUptake_+=consumed;
+    oxygen_.correctBoundaryConditions();
+}
 
 void bioTankControlFoam::oxygenStep() {
     const scalar dt=runTime.deltaTValue(), before=inventory(true);
@@ -253,13 +363,14 @@ void bioTankControlFoam::oxygenStep() {
         totalWarmup_+=inventory(true)-before;
         return;
     }
+    if(oxygenIntegration_=="midpoint") {oxygenMidpointStep();return;}
     const scalar D=coeff("molecularDiffusivity",dimArea/dimTime);
     volScalarField diffusivity("oxygenDiffusivity",liquid_*dimensionedScalar(dimArea/dimTime,D));
     const word nutName=IOobject::groupName("nut",liquid_.name());
     if(mesh.foundObject<volScalarField>(nutName))
         diffusivity+=liquid_*mesh.lookupObject<volScalarField>(nutName)/coeff("turbulentSchmidt",dimless);
     // Use the phase solver's bounded/subcycle-averaged liquid flux.
-    fvScalarMatrix transport(fvm::ddt(capacity_,oxygen_)+fvm::div(liquid_.alphaPhiRef(),oxygen_)
+    fvScalarMatrix transport(fv::EulerDdtScheme<scalar>(mesh).fvmDdt(capacity_,oxygen_)+fvm::div(liquid_.alphaPhiRef(),oxygen_)
         -fvm::laplacian(diffusivity,oxygen_));
     transport.solve();
     const surfaceScalarField flux(transport.flux());
@@ -303,6 +414,7 @@ void bioTankControlFoam::oxygenStep() {
 }
 
 void bioTankControlFoam::persist() {
+    state_.set("oxygenIntegration",oxygenIntegration_);
     state_.set("controller",mode_);state_.set("probeNames",names_);state_.set("probePositions",positions_);
     state_.set("sampleInterval",interval_);state_.set("deltaT",runTime.deltaTValue());state_.set("lastSample",lastSample_);
     state_.set("omega",applied_.omega);state_.set("gasFlow",applied_.gasFlow);

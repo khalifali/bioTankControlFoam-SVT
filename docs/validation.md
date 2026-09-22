@@ -63,3 +63,71 @@ rerun; the tested installer reused the already-built pinned OpenFOAM source tree
 Run the included tests locally with the commands above. No repository-specific
 runner configuration is required or bundled. Native CFD verification requires
 an active Foundation OpenFOAM 13 installation and MPI.
+
+## LES numerics verification — 22 September 2026
+
+The optional midpoint oxygen implementation was compiled and tested on the
+`lamfoam-local` self-hosted runner registered with LAMFOAM, using Foundation 13
+revision `18870c24d21c6b982e2cdec27b2f59738cca5f90`. See the
+[native order/regression run](https://github.com/khalifali/LAMFOAM/actions/runs/35777313776).
+The original split-Euler native cases also passed: chemistry, warm-up, serial/MPI
+agreement, restart/controller state, dry cells and oxygen conservation.
+
+The actual midpoint solver produced these concentration errors against independent
+references (mol/m3):
+
+| Time step (s) | Monod uptake | Discrete cosine diffusion |
+|---|---:|---:|
+| 0.1 | 1.51111e-5 | 7.97256e-6 |
+| 0.05 | 3.80415e-6 | 1.98689e-6 |
+| 0.025 | 9.52715e-7 | 4.96332e-7 |
+
+Successive observed orders were 1.990 and 1.997 for uptake, and 2.005 and 2.001
+for diffusion. The diffusion reference is exact for the discrete spatial
+operator, separating temporal error from spatial error. MPI restart differed
+from uninterrupted serial integration by 3.61e-16 mol/m3; oxygen balance residuals
+were below 1e-10 mol. These checks use stationary phases and do not establish
+second-order accuracy of the complete Euler–Euler system. Its internal bounded
+phase-fraction update remains Euler-based.
+
+The refined exercise mesh contains 3,548,937 cells. Basic validity/topology and
+face-tetrahedron checks pass, with maximum aspect ratio 13.00, non-orthogonality
+64.99 degrees and skewness 3.82. The extended audit flags 75,013 concave cells
+(2.11%), 87 warped faces and two very short edges. It is not a clean extended
+geometry pass. Neither these metrics nor a short startup test establish adequate
+LES resolution or wall modelling; use the [LES guide](les-exercise.md) for the
+remaining resolution, wall-treatment and statistical checks.
+
+The final eight-rank startup check advanced two steps, restarted, and advanced
+two more steps to 0.0004 s at deltaT = 0.0001 s. The maximum advancing-step
+Courant number was 0.0088092 and the maximum oxygen-balance residual was
+8.39e-14 mol. Nonnegative inventory, nonzero uptake and the selected LES models
+were verified. All five saved times (0 through 0.0004 s) exported successfully
+into one `VTK/tankLES.vtk.series`. The exporter explicitly includes time zero
+when reconstructing fields; its nine mock workflow regressions pass too.
+
+See the [completed runner report](https://github.com/khalifali/LAMFOAM/actions/runs/35782019427)
+and the [machine-readable measurements and provenance](verification/les-smoke-2026-09-22.json).
+The CFD ran at commit `51809e4`; subsequent changes fixed export/report handling
+without repeating or modifying those evolved CFD fields. The result is
+`passed_with_mesh_caveat`, not a clean extended mesh pass.
+
+Measured filter widths Delta = V^(1/3):
+
+| Region | Minimum (mm) | Median (mm) | Maximum (mm) |
+|---|---:|---:|---:|
+| Whole mesh | 0.441 | 4.782 | 36.914 |
+| Impeller envelope | 0.441 | 1.326 | 5.842 |
+| Discharge and baffles | 2.999 | 6.620 | 9.113 |
+| Central plume | 0.441 | 2.096 | 6.511 |
+
+Regions overlap. Startup liquid y+ maxima were 4.96 on the tank walls, 0.141
+on the stirrer, 2.21 on the shaft, 0.0177 on the sparger walls and about 4.64
+on the baffles. These are nearly quiescent startup values, not evidence of
+adequate wall resolution or valid developed-flow wall functions. This check
+ends early in the speed ramp, before aeration begins. It does not validate the
+500 rpm aerated operating point or turbulent statistics.
+
+On the runner, the retained case is under
+`persistent/biotank-les-35779452827-1/tankLES` in the LAMFOAM Actions workspace;
+the final report is under `persistent/biotank-les-35782019427-1/summary.json`.

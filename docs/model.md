@@ -91,7 +91,7 @@ Rapid acceleration/deceleration would require separate validation and potentiall
 a transient rotating-mesh model. No explicit angular-acceleration source is added.
 
 The source tutorial's large permitted Courant number targets fast approach to
-steady conditions. This project uses fixed Euler timesteps; select timestep by
+steady conditions. The original RANS exercise uses fixed Euler timesteps; select timestep by
 transient oxygen and controller sensitivity, not only solver stability.
 
 ## Dissolved oxygen
@@ -257,10 +257,17 @@ and [mode selection](controller.md#choose-the-operating-mode).
 
 ## Numerical treatment and inventory
 
-Conservative implicit Euler transport is followed by a local implicit positive
-Monod/transfer solve. This first-order split must be checked by reducing deltaT.
+The default `oxygenIntegration splitEuler` uses conservative implicit Euler
+transport followed by a local implicit positive Monod/transfer solve. This first-order split must be checked by reducing deltaT.
 Upwind scalar advection and uncorrected diffusion provide a robust baseline;
 mesh nonorthogonality and numerical diffusion still require convergence studies.
+
+The separate [LES exercise](les-exercise.md#coupled-midpoint-oxygen-update) sets
+`oxygenIntegration midpoint` and couples transport, transfer and uptake in one
+second-order scalar step. Its balance uses the same midpoint rates and fluxes.
+The RANS default is unchanged. The upstream bounded phase-fraction solver remains
+Euler-based, so this option does not make the full two-fluid system second order.
+A restart must preserve the chosen oxygen integration method.
 
 Pure gas cells make alpha*C storage singular. The implemented transport capacity
 is max(alpha,residualCapacity). The difference creates a small artificial oxygen
