@@ -1,5 +1,10 @@
 # Installation and activation
 
+**Using a university account without sudo?** Start with the
+[step-by-step Ubuntu 24.04 student guide](installation-no-sudo.md), including
+home-directory dependencies, activation, verification and ParaView. The default
+setup below uses sudo for system dependencies.
+
 Target Ubuntu 24.04, Foundation OpenFOAM 13, GCC and system OpenMPI. The pinned
 OpenFOAM revision is 18870c24d21c6b982e2cdec27b2f59738cca5f90 and ThirdParty revision
 ba1e22d69da30817a29cedfde3ea276719bec4e8. Do not mix OpenCFD releases or libraries

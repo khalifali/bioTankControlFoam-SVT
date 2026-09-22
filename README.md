@@ -14,6 +14,9 @@ for a short explanation of the two-fluid model, turbulence, stirring and oxygen 
 
 ## Build and activate
 
+**No sudo access?** Follow the [Ubuntu 24.04 installation guide for students](docs/installation-no-sudo.md).
+It installs the build tools, OpenFOAM and this project in your own account using HTTPS.
+
 ### First time: install and activate
 
 Run these commands once on Ubuntu 24.04:
