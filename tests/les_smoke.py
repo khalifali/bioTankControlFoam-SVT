@@ -51,10 +51,10 @@ def main():
     run('prepare', ['bash', str(ROOT / 'cases/aeratedTankLES/Allprepare'),
                     str(case), args.profile, str(args.ranks)])
     # Exercise oxygen immediately, both writes, demand change and a restart.
-    setentry('system/controlDict', 'endTime', '0.001')
-    setentry('system/controlDict', 'writeInterval', '0.0005')
+    setentry('system/controlDict', 'endTime', '0.0004')
+    setentry('system/controlDict', 'writeInterval', '0.0002')
     for key, value in {'oxygenStartTime': '0', 'controlStartTime': '0',
-                       'sampleInterval': '0.0001', 'demandChangeTime': '0.0005'}.items():
+                       'sampleInterval': '0.0001', 'demandChangeTime': '0.0002'}.items():
         setentry('constant/bioProperties', key, '[0 0 1 0 0 0 0] ' + value)
     if args.reuse_mesh:
         source = args.reuse_mesh.resolve()
@@ -96,19 +96,19 @@ def main():
     if 'Mesh OK' not in basic_mesh:
         raise RuntimeError('Basic mesh validity/topology check failed')
     run('solve', ['bash', './Allrun'], case)
-    run('restart', ['bash', './Allrestart', '0.002'], case)
+    run('restart', ['bash', './Allrestart', '0.0008'], case)
     solver = (case / 'log.bioTankControlFoam').read_text()
     restart_logs = list(case.glob('log.restart.*'))
     history = solver + '\n'.join(p.read_text() for p in restart_logs)
-    for model in ('SmagorinskyZhang', 'continuousGasKEqn'):
+    for model in ('SmagorinskyZhang', 'continuousGasKEqn', 'Oxygen integration: midpoint'):
         if model not in solver:
             raise RuntimeError('LES model not confirmed in solver log: ' + model)
     rows = []
     for path in sorted(case.glob('postProcessing/bioControl/*/oxygenBalance.csv')):
         with path.open() as stream:
             rows.extend({k: float(v) for k, v in row.items()} for row in csv.DictReader(stream))
-    if not rows or abs(max(r['time_s'] for r in rows) - .002) > 1e-9:
-        raise RuntimeError('Missing final oxygen balance at 0.002 s')
+    if not rows or abs(max(r['time_s'] for r in rows) - .0008) > 1e-9:
+        raise RuntimeError('Missing final oxygen balance at 0.0008 s')
     if any(not all(math.isfinite(v) for v in row.values()) for row in rows):
         raise RuntimeError('Non-finite oxygen balance')
     residual = max(abs(row['residual_mol']) for row in rows)
@@ -122,7 +122,7 @@ def main():
     run('vtk', ['bash', './foamToVTK.sh', 'all', str(min(args.ranks, 4))], case)
     series = json.loads((case / 'VTK/tankLES.vtk.series').read_text())
     converted = [entry['time'] for entry in series['files']]
-    if converted != [0, .0005, .001, .0015, .002]:
+    if converted != [0, .0002, .0004, .0006, .0008]:
         raise RuntimeError(f'Unexpected series times: {converted}')
     for entry in series['files']:
         if (case / 'VTK' / entry['name']).stat().st_size == 0:
@@ -141,8 +141,8 @@ def main():
             raise RuntimeError('Diagnostic cell count mismatch')
         return values
 
-    volumes = internal(case / '0.002/V')
-    centres = internal(case / '0.002/C', vector=True)
+    volumes = internal(case / '0.0008/V')
+    centres = internal(case / '0.0008/C', vector=True)
     if len(volumes) != len(centres) or not volumes or min(volumes) <= 0:
         raise RuntimeError('Invalid cell volumes/centres')
     widths = [v**(1/3) for v in volumes]
@@ -184,7 +184,7 @@ def main():
     summary = {'status': 'passed_with_mesh_caveat' if concavity_only else 'passed' , 'scope': 'short integration smoke; not converged LES',
                'meshProfile': args.profile, 'ranks': args.ranks,
                'cells': re.findall(r'^\s*cells:\s*(\d+)', mesh, re.M),
-               'deltaT_s': .0001, 'endTime_s': .002,
+               'deltaT_s': .0001, 'endTime_s': .0008,
                'maxCourant': max(courants), 'maxOxygenBalanceResidual_mol': residual,
                'vtkTimes_s': converted,
                'openfoamVersion': os.environ.get('WM_PROJECT_VERSION'),

@@ -21,11 +21,17 @@ foamDictionary "$target/system/decomposeParDict" -entry hierarchicalCoeffs \
     -set "{ n (1 1 $ranks); order xyz; }"
 foamDictionary "$target/system/controlDict" -entry deltaT -set 0.0001
 foamDictionary "$target/system/controlDict" -entry writeInterval -set 0.1
-# Preserve Euler and the conservative oxygen split until independently verified
-# with other temporal schemes. No claim of second-order scalar integration.
+# BDF2 for supported flow equations; phase-fraction MULES remains Euler-based
+# internally in OF13. Oxygen uses the coupled midpoint method in this library.
+foamDictionary "$target/system/fvSchemes" -entry ddtSchemes -set '{ default backward; }'
+foamDictionary "$target/constant/bioProperties" -entry oxygenIntegration -set midpoint
 foamDictionary "$target/system/fvSchemes" -entry 'gradSchemes/grad(U)' -set 'Gauss linear'
-foamDictionary "$target/system/fvSchemes" -entry 'divSchemes/div(alphaRhoPhi,U)' -set 'Gauss linearUpwind grad(U)'
-foamDictionary "$target/system/fvSchemes" -entry 'divSchemes/div(phi,U)' -set 'Gauss linearUpwind grad(U)'
+foamDictionary "$target/system/fvSchemes" -entry 'divSchemes/div(alphaRhoPhi,U)' -set 'Gauss linear'
+foamDictionary "$target/system/fvSchemes" -entry 'divSchemes/div(phi,U)' -set 'Gauss linear'
+foamDictionary "$target/system/fvSchemes" -entry 'divSchemes/div(alphaPhi.liquid,oxygen.liquid)' -set 'Gauss limitedLinear 1'
+foamDictionary "$target/system/fvSchemes" -entry 'laplacianSchemes/laplacian(oxygenDiffusivity,oxygen.liquid)' -set 'Gauss linear corrected'
+foamDictionary "$target/system/fvSolution" -entry PIMPLE/nOuterCorrectors -set 2
+foamDictionary "$target/system/fvSolution" -entry PIMPLE/nNonOrthogonalCorrectors -set 1
 # The tutorial uses system/functions, which takes precedence over controlDict.
 # Keep its existing diagnostics, add LES fields, and put the stop trigger there.
 foamDictionary "$target/system/controlDict" -entry functions -remove
@@ -62,9 +68,19 @@ abort
     executeInterval 1;
 }
 FUNCTIONS
-# A constant operating point makes the initial LES exercise easier to assess.
-foamDictionary "$target/constant/bioProperties" -entry controller -set constant
-foamDictionary "$target/constant/bioProperties" -entry initialGasFlow -set '[0 3 -1 0 0 0 0] 0.0186666666666667'
+# Start from rest, ramp to 500 rpm, then introduce aeration. A discontinuous
+# full-speed/full-flow start can produce nonphysical pressure transients.
+foamDictionary "$target/constant/bioProperties" -entry controller -set prescribed
+foamDictionary "$target/constant/bioProperties" -entry initialOmega -set '[0 0 -1 0 0 0 0] 0'
+foamDictionary "$target/constant/bioProperties" -entry initialGasFlow -set '[0 3 -1 0 0 0 0] 0'
+foamDictionary "$target/constant/bioProperties" -entry schedule -set '((0 0 0)(6 52.35987755982988 0)(6.1 52.35987755982988 0.0186666666666667)(60 52.35987755982988 0.0186666666666667))'
+cat >> "$target/constant/bioProperties" <<'NUMERICS'
+
+// LES numerics: oxygenIntegration midpoint couples transport and reactions.
+// Second-order oxygen time discretisation for smooth, time-centred flow inputs;
+// upstream Euler-based phase transport still limits full-system temporal order.
+// Midpoint is not unconditionally positive: reduce deltaT if positivity fails.
+NUMERICS
 # Retain official wall functions as an initial wall-modelled treatment.
 # k.gas is needed by continuousGasKEqn; k.liquid remains for wall-function input.
 # omega belongs to the former RANS closure, and is not solved by either LES model.

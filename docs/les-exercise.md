@@ -42,8 +42,9 @@ Open `VTK/tankLES.vtk.series` in ParaView. `Allrestart`, `Allclean` and the expo
 helper follow the original exercise's conventions. Preparation requires a new
 absolute destination; it never converts an existing RANS run in place.
 
-The LES exercise defaults to a constant 500 rpm and 0.0186667 m3/s air flow from
-the start. Oxygen activation remains at 10 s. The controller modes and student
+The LES exercise starts from rest, ramps to 500 rpm over 6 s, then ramps air
+flow to 0.0186667 m3/s between 6 and 6.1 s. Oxygen activation remains at 10 s.
+This avoids imposing full rotation and aeration impulsively on a quiescent tank. The controller modes and student
 extension point are described in [the controller guide](controller.md).
 
 ## Mesh profiles
@@ -79,12 +80,63 @@ This is a starting value, not a Courant guarantee. Reduce it if necessary and
 keep sampling/activation times aligned with the time-step grid. The solver
 currently rejects automatic time-step adjustment.
 
-Momentum uses linear-upwind with an un-limited linear velocity gradient, instead
-of the baseline cell-limited gradient. Euler time integration and upwind oxygen
-advection are retained for the existing split reaction/balance implementation.
-This conservative initial setup can dissipate resolved fluctuations: temporal
-and spatial sensitivity tests, and a separately verified higher-order scalar
-scheme, are required before interpreting LES mixing predictions.
+The case selects `backward` (BDF2) for the flow equations that honour
+`ddtSchemes`. BDF2 starts with Euler when the required history is unavailable.
+Momentum convection uses centred `Gauss linear` to avoid upwind dissipation.
+Oxygen uses `Gauss limitedLinear 1`; phase fractions retain `Gauss vanLeer` and
+MULES bounds. These spatial schemes are nominally second order in smooth regions;
+limiters reduce local order near sharp gradients. Linear gradients and corrected
+Laplacians include non-orthogonal corrections. Two outer PIMPLE iterations and
+one non-orthogonal correction are a starting setting, not proof of convergence.
+Compare tighter tolerances/more iterations when assessing temporal accuracy.
+
+**The complete Euler–Euler system is not second order in time.** In the pinned
+[OF13 phase solver](https://github.com/OpenFOAM/OpenFOAM-13/blob/18870c24d21c6b982e2cdec27b2f59738cca5f90/applications/modules/multiphaseEuler/phaseSystem/phaseSystem/phaseSystemSolve.C),
+the bounded phase-fraction predictor explicitly instantiates Euler and MULES
+uses its Euler-based updates. Changing `ddtSchemes` does not replace them.
+A fully second-order coupled simulation needs a separately developed and
+verified phase-transport implementation. No such upstream modification is
+included here, and a successful short run cannot establish that accuracy.
+
+### Coupled midpoint oxygen update
+
+LES preparation sets `oxygenIntegration midpoint;` in `bioProperties`.
+The original RANS default remains `splitEuler`. Midpoint solves transport,
+dissolution and Monod uptake together, eliminating the first-order
+transport-then-reaction split. With $c_m=(c^{n+1}+c^n)/2$ and
+$\beta=\max(\alpha_l,\alpha_{res})$, it solves
+
+$$
+\frac{\beta^{n+1}c^{n+1}-\beta^n c^n}{\Delta t}
++\nabla\cdot(\overline{\alpha_l\mathbf U_l}c_m)
+-\nabla\cdot(D_m\nabla c_m)
+=S_m-K_m c_m-Q_m\frac{c_m}{K_O+c_m}.
+$$
+
+$D_m$, $K_m$, $S_m$ and $Q_m$ are endpoint averages of the effective
+diffusivity, $k_La$, $k_La c^*$ and liquid-weighted maximum uptake.
+Convection uses the phase solver's conservative interval flux. The nonlinear
+solve iterates to convergence and records the same midpoint boundary/source
+terms in the oxygen balance. Demand jumps use their interval value at both
+endpoints; activation and sampling must stay aligned to the fixed time step.
+Restart reconstructs endpoint coefficients from the saved phase/oxygen fields.
+
+This scalar discretisation is second order for smooth, time-centred flow input;
+first-order errors in the phase solution still propagate into it. Midpoint and
+centred convection are not unconditionally positive or monotone. A negative
+oxygen value stops the solve without clipping: reduce the time step and inspect
+spatial oscillations. A more dissipative momentum fallback is
+`Gauss linearUpwind grad(U)`, but record such changes in any sensitivity study.
+
+Verify scalar time order independently with:
+
+```bash
+python3 tests/accuracy_native.py --output "$PWD/tests/results/accuracy"
+```
+
+This runs the actual solver with three time steps against an implicit analytical
+Monod solution and an exact discrete cosine-diffusion mode, and checks MPI restart
+agreement and oxygen conservation. It does not verify the phase equation's order.
 
 `nut.liquid/turbulentSchmidt` now represents modelled subgrid scalar diffusivity.
 The existing Schmidt number and transfer closure are not automatically validated
@@ -125,10 +177,10 @@ python3 tests/les_smoke.py --profile exercise --output "$PWD/tests/results/les-e
 
 Use a new output directory each time. The default builds the smoke-profile mesh; `--profile exercise` builds the finer
 exercise grid. Both run
-10 steps to 0.001 s, then restart for 10 more steps to 0.002 s. Oxygen starts at
-zero and demand changes at 0.0005 s for this test only. It checks mesh quality,
+4 steps to 0.0004 s, then restart for 4 more steps to 0.0008 s. Oxygen activation starts at
+zero and demand changes at 0.0002 s for this test only. It checks mesh quality,
 selection of both LES models, finite oxygen balances, nonnegative inventory,
-nonzero uptake, a maximum logged Courant number no greater than 1, restart and
+nonzero uptake during the initial speed ramp, a maximum logged Courant number no greater than 1, restart and
 VTK export of all five saved times. Logs, generated dictionaries and `summary.json`
 are retained. It does not establish developed turbulence or grid-independent LES accuracy.
 
