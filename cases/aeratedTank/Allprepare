@@ -57,7 +57,7 @@ cp -a "$upstream/." "$target/"
 cp constant/bioProperties "$target/constant/"
 cp 0.backup/oxygen.liquid "$target/0/"
 cp system/controlDict "$target/system/"
-cp Allmesh Allrun Allclean Allrestart "$target/"
+cp Allmesh Allrun Allclean Allrestart foamToVTK.sh "$target/"
 
 # ---------------------------------------------------------------------------
 # Configure oxygen numerics and parallel decomposition

@@ -83,6 +83,51 @@ select `internalMesh`, and display `alpha.gas`, `U.liquid` or `oxygen.liquid`.
 Use liquid-dominated regions when displaying dissolved oxygen; dry-cell values
 are numerical placeholders, not gas oxygen concentrations.
 
+## Export all saved times to VTK
+
+After the solver has stopped, activate OpenFOAM 13 and run in the prepared case:
+
+```bash
+cd runs/tank
+./foamToVTK.sh all 8
+```
+
+`Allprepare` includes this script in new runs. For an existing run, copy
+`cases/aeratedTank/foamToVTK.sh` from this repository into the run directory first.
+The script always operates on the directory containing the script, regardless of
+where you invoke it. It requires Python 3 (3.9 or newer).
+
+This adapts LAMFOAM's `postprocessing/foamvtk.sh` workflow to the tank's case
+layout and multiphase fields. It reconstructs missing or partial root times from
+`processorN` directories, prepares meshes serially, then runs up to eight serial
+utilities concurrently on different saved times. This is pseudo-parallel work
+across times; it does not launch MPI. Use fewer workers if memory is limited.
+The completeness check includes all files at the top level of `processor0/<time>`
+(including compressed fields), and requires `U.liquid`, `alpha.gas` and
+`oxygen.liquid`. Reconstruction and VTK conversion include all available fields.
+
+Open `VTK/tank.vtk.series` in ParaView (replace `tank` with your run directory's
+name). This single index spans all completed internal-mesh VTK files, sorted by
+physical time, including output retained from previous invocations. Patch VTK
+files are also written by OpenFOAM but are not included in the internal-mesh index.
+All processor, original and reconstructed time directories are preserved.
+
+```bash
+./foamToVTK.sh 4                 # same as all 4; default is all 8
+./foamToVTK.sh reconstruct 4     # only reconstruct missing fields
+./foamToVTK.sh vtk 4             # only convert existing reconstructed/serial times
+./foamToVTK.sh series            # rebuild the index without OpenFOAM utilities
+```
+
+Reruns skip complete reconstructed times and existing nonempty VTK files; failed
+jobs leave markers so their output is retried. Logs and markers are stored in
+`log.foamToVTK/`, with one log per utility/time. The series index is replaced only
+after successful conversion. If you deliberately change fields at an already
+converted time, remove that time's `VTK/<case>_<time>.vtk` and rerun to refresh it.
+Do not rename a case between exports: VTK filenames use the case directory name.
+The helper targets this fixed-mesh, single-region tank and its standard
+`processorN` storage; collated `processors*` storage is rejected explicitly.
+
 ## Read before interpreting results
 
 - [Complete parameter reference](docs/aerated-tank-walkthrough.md#complete-bioproperties-parameter-reference)
