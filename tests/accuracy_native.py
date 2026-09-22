@@ -9,6 +9,7 @@ error cannot masquerade as time error. These tests do not certify phase order.
 import argparse
 import json
 import math
+import re
 from pathlib import Path
 import native_suite as native
 
@@ -40,8 +41,13 @@ def main():
         native.setentry(case, 'system/fvSchemes', 'laplacianSchemes/laplacian(oxygenDiffusivity,oxygen.liquid)', 'Gauss linear corrected')
         if diffusion:
             values = [.15+.02*math.cos(math.pi*(i+.5)/4) for k in range(4) for j in range(4) for i in range(4)]
-            native.setentry(case, '0/oxygen.liquid', 'internalField',
-                            'nonuniform List<scalar> 64 ('+' '.join(map(str, values))+')')
+            # foamDictionary serialises numbers at its own default precision.
+            # Preserve this analytical mode to machine precision so rounding
+            # cannot set an error floor in the time-refinement study.
+            field = case/'0/oxygen.liquid'
+            field.write_text(re.sub(r'internalField\s+[^;]+;',
+                'internalField nonuniform List<scalar> 64 ('+' '.join(map(str, values))+');',
+                field.read_text()))
         return case
 
     def monod(t):
