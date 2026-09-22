@@ -150,10 +150,12 @@ Requires Python 3; all/reconstruct/vtk require active Foundation OpenFOAM 13.
                 selected.append(t)
         if selected:
             require("reconstructPar")
+            # reconstructPar excludes zero even for -time 0 unless -withZero
+            # is present. Include it in both mesh and field passes.
             # Mesh/addressing writes must finish before concurrent field reconstruction.
             print("Preparing meshes serially for:", ", ".join(selected), flush=True)
             run(["reconstructPar", "-case", str(case), "-time", ",".join(selected),
-                 "-noFields", "-noLagrangian", "-noSets"], "mesh")
+                 "-withZero", "-noFields", "-noLagrangian", "-noSets"], "mesh")
 
             def reconstruct(t):
                 marker = logs / ("reconstruct.pending." + t)
@@ -161,9 +163,10 @@ Requires Python 3; all/reconstruct/vtk require active Foundation OpenFOAM 13.
                 # An existing VTK may predate a partially reconstructed field set.
                 pending(t).touch()
                 run(["reconstructPar", "-case", str(case), "-time", t,
-                     "-noLagrangian", "-noSets"], "reconstruct." + t)
+                     "-withZero", "-noLagrangian", "-noSets"], "reconstruct." + t)
                 if not complete(t, fields(case / "processor0" / t)):
-                    raise RuntimeError(f"Reconstruction left missing fields at {t}.")
+                    raise RuntimeError(f"Reconstruction left missing fields at {t}: "
+                                       + ", ".join(sorted(fields(case / "processor0" / t) - fields(case / t))))
                 marker.unlink()
 
             parallel(reconstruct, selected)

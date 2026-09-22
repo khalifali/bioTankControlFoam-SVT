@@ -23,6 +23,10 @@ if name == 'reconstructPar':
     if '-noFields' in args:
         (case / 'mesh-ready').touch()
     else:
+        # Foundation reconstructPar excludes zero unless explicitly enabled,
+        # including when a numeric time selection names zero.
+        if float(t) == 0 and '-withZero' not in args:
+            sys.exit(0)
         assert (case / 'mesh-ready').exists()
         dest = case / t
         dest.mkdir(exist_ok=True)
@@ -107,6 +111,13 @@ class Workflow(unittest.TestCase):
             self.assertTrue((self.case / 'processor1' / t).is_dir())
         self.run_script('all', '2')
         self.assertEqual(calls, self.calls())
+
+    def test_partial_zero_is_reconstructed(self):
+        self.decomposed()
+        (self.case / '0/p').unlink()
+        self.run_script('all', '2')
+        self.assertTrue((self.case / '0/p').exists())
+        self.assertEqual(self.entries()[0]['time'], 0)
 
     def test_serial_and_series_without_source_times(self):
         for t in ('0', '.5', '2e1'):
