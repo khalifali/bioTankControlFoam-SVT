@@ -82,6 +82,16 @@ This is a starting value, not a Courant guarantee. Reduce it if necessary and
 keep sampling/activation times aligned with the time-step grid. The solver
 currently rejects automatic time-step adjustment.
 
+The inherited physical end time is 60 s: at this time step that means 600,000
+steps. The tested 3.55-million-cell grid took roughly 60 wall-clock seconds per
+startup step on eight ranks with per-step output, excluding reconstruction/export.
+Normal production output is less frequent, so its cost can differ. Sustaining that
+rate would require about 10,000 wall-clock hours for 60 s of physical time;
+this is an indicative extrapolation, not a performance guarantee. Use the short
+native check first and set a suitable `endTime` before launching a longer run.
+Developed LES statistics require substantially more compute than the RANS
+teaching exercise.
+
 The case selects `backward` (BDF2) for the flow equations that honour
 `ddtSchemes`. BDF2 starts with Euler when the required history is unavailable.
 Momentum convection uses centred `Gauss linear` to avoid upwind dissipation.
@@ -122,6 +132,8 @@ solve iterates to convergence and records the same midpoint boundary/source
 terms in the oxygen balance. Demand jumps use their interval value at both
 endpoints; activation and sampling must stay aligned to the fixed time step.
 Restart reconstructs endpoint coefficients from the saved phase/oxygen fields.
+The exercise uses fixed prescribed oxygen boundary values; time-varying oxygen
+boundary data would also require midpoint evaluation to retain second order.
 
 This scalar discretisation is second order for smooth, time-centred flow input;
 first-order errors in the phase solution still propagate into it. Midpoint and
@@ -163,7 +175,7 @@ and central plume. Overlapping regions are intentional. This filter width does
 not measure directional stretching; also inspect the aspect-ratio report and
 mesh slices through blade gaps and wakes.
 
-Each LES run writes cell centres (`C`), volumes (`V`), and liquid `yPlus` at
+Each LES run writes cell centres (`C`), volumes (`Vc` in Foundation 13), and liquid `yPlus` at
 output times. The report includes final startup y+ min/max/mean by wall patch.
 These startup values are diagnostic only: assess wall resolution again after
 flow development. `Mesh OK` does not establish resolved turbulent energy,
@@ -193,3 +205,14 @@ For iterative runner checks, `--reuse-mesh /absolute/retained/tankLES` copies on
 the fixed mesh and initial fields into a new test case. It verifies an identical
 Allmesh recipe, mesh profile, geometry and MPI rank count, and reruns basic
 validity/topology checks. It never continues or modifies the retained source run.
+
+`--existing-case /absolute/retained/tankLES` audits an already completed smoke
+case without advancing CFD. It requires the same profile and test end time,
+rechecks mesh validity and the logged advancing-step Courant numbers, and writes
+VTK exports inside that retained case. Choose a new `--output` directory for the
+report. Constructor Courant diagnostics are listed separately; every actual
+advancing step, including the first, must satisfy the Courant gate.
+
+The [executed verification report](validation.md) records the measured oxygen
+time order, refined-grid geometry/filter widths, startup y+, conservation and
+VTK results. Its machine-readable data retain the tested commit and runner links.

@@ -1,0 +1,111 @@
+{
+  "status": "passed_with_mesh_caveat",
+  "scope": "short integration smoke; not converged LES",
+  "meshProfile": "exercise",
+  "ranks": 8,
+  "cells": [
+    "3548937"
+  ],
+  "deltaT_s": 0.0001,
+  "endTime_s": 0.0004,
+  "maxCourant": 0.00880919001571,
+  "constructorCourants": [
+    0,
+    0.00632572552558
+  ],
+  "maxOxygenBalanceResidual_mol": 8.387956344267093e-14,
+  "vtkTimes_s": [
+    0,
+    0.0001,
+    0.0002,
+    0.0003,
+    0.0004
+  ],
+  "openfoamVersion": "13",
+  "meshQuality": [
+    "Max aspect ratio = 12.9988657524 OK.",
+    "Min volume = 8.59711606755e-11. Max volume = 5.0302520709e-05.  Total volume = 1.05375845978.  Cell volumes OK.",
+    "Mesh non-orthogonality Max: 64.991938054 average: 10.0835122871",
+    "Non-orthogonality check OK.",
+    "Max skewness = 3.81983041643 OK."
+  ],
+  "filterWidthByRegion": {
+    "wholeMesh": {
+      "cells": 3548937,
+      "minDelta_m": 0.00044135115083591617,
+      "medianDelta_m": 0.004781895008701173,
+      "maxDelta_m": 0.03691446536143868
+    },
+    "impellerEnvelope": {
+      "cells": 1619818,
+      "minDelta_m": 0.00044135115083591617,
+      "medianDelta_m": 0.0013260830854993752,
+      "maxDelta_m": 0.005842051301917374
+    },
+    "dischargeAndBaffles": {
+      "cells": 1220608,
+      "minDelta_m": 0.0029985616690115314,
+      "medianDelta_m": 0.006619779602156997,
+      "maxDelta_m": 0.009113165270532677
+    },
+    "centralPlume": {
+      "cells": 1771818,
+      "minDelta_m": 0.00044135115083591617,
+      "medianDelta_m": 0.002096449523989684,
+      "maxDelta_m": 0.00651131481184665
+    }
+  },
+  "extendedGeometryAudit": "concave cells flagged",
+  "concaveCells": 75013,
+  "basicValidityAndTopology": "passed",
+  "wallDiagnostics": [
+    "postProcessing/lesYPlus/0/yPlus.liquid.dat",
+    "postProcessing/lesYPlus/0.0002/yPlus.liquid.dat"
+  ],
+  "startupLiquidYPlusByPatch": {
+    "tank_walls": {
+      "time_s": 0.0004,
+      "min": 5.656387155934e-7,
+      "max": 4.955286158053,
+      "mean": 0.7180165364115
+    },
+    "stirrer": {
+      "time_s": 0.0004,
+      "min": 0.0001498525478566,
+      "max": 0.1405293340871,
+      "mean": 0.01687381841788
+    },
+    "shaft": {
+      "time_s": 0.0004,
+      "min": 0.004967216414559,
+      "max": 2.207360555343,
+      "mean": 0.9089032532443
+    },
+    "sparger_walls": {
+      "time_s": 0.0004,
+      "min": 7.268632339879e-7,
+      "max": 0.01773552747201,
+      "mean": 0.0003365574384106
+    },
+    "baffles": {
+      "time_s": 0.0004,
+      "min": 0.000001580721098156,
+      "max": 4.641361160404,
+      "mean": 0.4331840759968
+    },
+    "baffles_slave": {
+      "time_s": 0.0004,
+      "min": 2.088798918176e-7,
+      "max": 4.637104454095,
+      "mean": 0.4333038703581
+    }
+  },
+  "wallAssessment": "startup y+ only; developed-flow wall adequacy unverified",
+  "provenance": {
+    "cfdCommit": "51809e4c15e457b38386e54846c0df36dbced8e9",
+    "reportCommit": "797a28efcd000a58b80b040cba7383122a87539f",
+    "openfoamCommit": "18870c24d21c6b982e2cdec27b2f59738cca5f90",
+    "solverRun": "https://github.com/khalifali/LAMFOAM/actions/runs/35779452827",
+    "completedReportRun": "https://github.com/khalifali/LAMFOAM/actions/runs/35782019427"
+  }
+}
