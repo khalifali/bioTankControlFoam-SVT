@@ -155,7 +155,11 @@ def main():
             raise RuntimeError('Diagnostic cell count mismatch')
         return values
 
-    volumes = internal(case / '0.0004/V')
+    # Foundation 13 names mesh.V() 'Vc'; accept V from older installations.
+    volume_path = case / '0.0004/Vc'
+    if not volume_path.exists():
+        volume_path = case / '0.0004/V'
+    volumes = internal(volume_path)
     centres = internal(case / '0.0004/C', vector=True)
     if len(volumes) != len(centres) or not volumes or min(volumes) <= 0:
         raise RuntimeError('Invalid cell volumes/centres')
