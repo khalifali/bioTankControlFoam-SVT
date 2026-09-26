@@ -1,0 +1,58 @@
+name: LES NCC smoke
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  ncc-smoke:
+    runs-on: [self-hosted, linux, x64, lamfoam-local]
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Activate Foundation OpenFOAM 13
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in "$HOME/OpenFOAM/OpenFOAM-13/etc/bashrc" "$HOME/OpenFOAM-13/etc/bashrc" "$HOME/software/OpenFOAM-13/etc/bashrc"; do
+            if [ -f "$f" ]; then echo "$f" > "$RUNNER_TEMP/of13-bashrc"; exit 0; fi
+          done
+          if [ -n "${WM_PROJECT_DIR:-}" ] && [ -f "$WM_PROJECT_DIR/etc/bashrc" ]; then
+            echo "$WM_PROJECT_DIR/etc/bashrc" > "$RUNNER_TEMP/of13-bashrc"; exit 0
+          fi
+          echo "Could not locate existing OF13 bashrc" >&2; exit 1
+      - name: Build project
+        shell: bash
+        run: |
+          source "$(cat "$RUNNER_TEMP/of13-bashrc")"
+          ./Allwmake
+      - name: Prepare NCC smoke case
+        shell: bash
+        run: |
+          source "$(cat "$RUNNER_TEMP/of13-bashrc")"
+          rm -rf "$RUNNER_TEMP/bioTank-ncc-smoke"
+          ./cases/aeratedTankLESSliding/Allprepare "$RUNNER_TEMP/bioTank-ncc-smoke" smoke 8
+      - name: Mesh and NCC
+        shell: bash
+        run: |
+          source "$(cat "$RUNNER_TEMP/of13-bashrc")"
+          cd "$RUNNER_TEMP/bioTank-ncc-smoke"
+          ./Allmesh
+      - name: Short moving-mesh run
+        shell: bash
+        run: |
+          source "$(cat "$RUNNER_TEMP/of13-bashrc")"
+          cd "$RUNNER_TEMP/bioTank-ncc-smoke"
+          foamDictionary system/controlDict -entry endTime -set 0.0002
+          foamDictionary system/controlDict -entry writeInterval -set 0.0001
+          ./Allrun
+      - name: Retain diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: les-ncc-smoke
+          path: |
+            ${{ runner.temp }}/bioTank-ncc-smoke/log.*
+            ${{ runner.temp }}/bioTank-ncc-smoke/constant/dynamicMeshDict
+            ${{ runner.temp }}/bioTank-ncc-smoke/system/*NCC*
