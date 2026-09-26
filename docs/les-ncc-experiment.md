@@ -24,3 +24,6 @@ baffles around `rotatingZone`, split them, then call
 `createNonConformalCouples`. The exact patch extraction for the aerated
 snappyHexMesh geometry must be verified in the native smoke test before the
 case is promoted.
+
+
+Runner validation is performed by `.github/workflows/les-ncc-smoke.yml` on the self-hosted OF13 runner.
