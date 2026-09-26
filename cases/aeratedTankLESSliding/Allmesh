@@ -86,7 +86,7 @@ reconstructPar -withZero -fields '(alpha.gas alpha.liquid)' > log.reconstructIni
 # rotatingZone generated with the rotating cell zone. This is the OF13
 # simpleRushtonNCC sequence; fail here if the generated geometry does not
 # expose a usable interface instead of producing a misleading runnable case.
-./makeNCC > log.makeNCC 2>&1
+bash ./makeNCC > log.makeNCC 2>&1
 checkMesh -constant -allGeometry -allTopology > log.checkMeshNCC 2>&1
 grep -q 'Mesh OK' log.checkMeshNCC || {
     echo 'NCC mesh failed final checkMesh; inspect log.makeNCC/log.checkMeshNCC.' >&2
