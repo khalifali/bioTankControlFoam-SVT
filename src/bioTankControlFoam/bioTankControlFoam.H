@@ -13,7 +13,7 @@ class bioTankControlFoam : public multiphaseEuler {
     phaseModel& liquid_;
     phaseModel& gas_;
     volScalarField oxygen_, capacity_, kla_, saturation_;
-    word mode_, oxygenIntegration_;
+    word mode_, oxygenIntegration_, stirrerModel_;
     autoPtr<volScalarField> oldDiffusivity_, oldKla_, oldSaturation_, oldLiquid_;
     wordList names_;
     vectorField positions_;
