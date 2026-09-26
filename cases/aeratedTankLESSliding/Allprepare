@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Usage: ./cases/aeratedTankLESSliding/Allprepare /absolute/new/run [exercise|smoke] [ranks]
+# Experimental Euler-Euler LES + rotating-mesh/NCC variant.
+set -euo pipefail
+here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+target=${1:?Usage: Allprepare /absolute/new/run [exercise|smoke] [ranks]}
+profile=${2:-smoke}; ranks=${3:-8}
+[[ $profile =~ ^(exercise|smoke)$ && $ranks =~ ^[1-9][0-9]*$ ]] || exit 2
+"$here/../aeratedTankLES/Allprepare" "$target" "$profile" "$ranks"
+cp "$here/Allmesh" "$target/"
+cp "$here/makeNCC" "$target/"
+cp "$here/constant/dynamicMeshDict" "$target/constant/"
+# Moving-mesh validation currently uses prescribed speed: the exact LES schedule
+# is represented by OF13 rotatingMotion Function1, not the MRF actuator.
+foamDictionary "$target/constant/bioProperties" -entry actuatorsEnabled -set false
+foamDictionary "$target/constant/bioProperties" -entry controller -set prescribed
+echo "Prepared experimental LES-NCC case: $target"
+echo "Run ./Allmesh, inspect log.checkMesh, then ./Allrun."
