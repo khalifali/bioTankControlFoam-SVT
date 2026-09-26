@@ -1,18 +1,77 @@
-FoamFile { format ascii; class dictionary; object nonCouplePatchFields; }
+FoamFile
+{
+    format ascii;
+    class dictionary;
+    object nonCouplePatchFields;
+}
 
-"(U\\..*)"
+U.liquid
+{
+    type movingWallSlipVelocity;
+    value uniform (0 0 0);
+}
+U.gas
 {
     type movingWallSlipVelocity;
     value uniform (0 0 0);
 }
 
-"(nut\\..*|alphat\\..*|k\\..*|omega\\..*|epsilon\\..*)"
+nut.liquid
+{
+    type calculated;
+    value uniform 0;
+}
+nut.gas
+{
+    type calculated;
+    value uniform 0;
+}
+alphat.liquid
+{
+    type calculated;
+    value uniform 0;
+}
+alphat.gas
+{
+    type calculated;
+    value uniform 0;
+}
+k.liquid
+{
+    type calculated;
+    value uniform 0;
+}
+k.gas
 {
     type calculated;
     value uniform 0;
 }
 
-"(p|p_rgh|alpha\\..*|oxygen\\..*|T\\..*)"
+p
+{
+    type zeroGradient;
+}
+p_rgh
+{
+    type zeroGradient;
+}
+alpha.liquid
+{
+    type zeroGradient;
+}
+alpha.gas
+{
+    type zeroGradient;
+}
+oxygen.liquid
+{
+    type zeroGradient;
+}
+T.liquid
+{
+    type zeroGradient;
+}
+T.gas
 {
     type zeroGradient;
 }
