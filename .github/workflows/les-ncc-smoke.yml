@@ -7,7 +7,7 @@ on:
 
 jobs:
   ncc-smoke:
-    runs-on: [self-hosted]
+    runs-on: [self-hosted, linux, x64, lamfoam-local]
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
