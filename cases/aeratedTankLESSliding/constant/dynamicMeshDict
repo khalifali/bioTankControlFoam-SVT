@@ -1,0 +1,23 @@
+FoamFile
+{
+    format ascii;
+    class dictionary;
+    object dynamicMeshDict;
+}
+mover
+{
+    type motionSolver;
+    libs ("libfvMotionSolvers.so");
+    motionSolver solidBody;
+    cellZone rotatingZone;
+    solidBodyMotionFunction rotatingMotion;
+    origin (0 0 0);
+    axis (0 0 1);
+    // Same startup as the LES-MRF exercise: 0 -> 500 rpm over 6 s.
+    omega table
+    (
+        (0 0)
+        (6 52.35987755982988)
+        (60 52.35987755982988)
+    );
+}
