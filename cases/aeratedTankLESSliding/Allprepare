@@ -10,6 +10,9 @@ profile=${2:-smoke}; ranks=${3:-8}
 cp "$here/Allmesh" "$target/"
 cp "$here/makeNCC" "$target/"
 cp "$here/constant/dynamicMeshDict" "$target/constant/"
+cp "$here/system/createBafflesDict.NCC" "$target/system/"
+cp "$here/system/nonCouplePatchFields" "$target/system/"
+foamDictionary "$target/constant/bioProperties" -entry stirrerModel -set movingMesh
 # Moving-mesh validation currently uses prescribed speed: the exact LES schedule
 # is represented by OF13 rotatingMotion Function1, not the MRF actuator.
 foamDictionary "$target/constant/bioProperties" -entry actuatorsEnabled -set false
