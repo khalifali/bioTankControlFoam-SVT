@@ -1,15 +1,18 @@
 FoamFile { format ascii; class dictionary; object nonCouplePatchFields; }
+
 "(U\\..*)"
 {
     type movingWallSlipVelocity;
     value uniform (0 0 0);
 }
-"(nut\\..*|k\\..*|omega\\..*)"
+
+"(nut\\..*|alphat\\..*|k\\..*|omega\\..*|epsilon\\..*)"
 {
     type calculated;
     value uniform 0;
 }
-"(p|p_rgh|alpha\\..*|oxygen\\..*)"
+
+"(p|p_rgh|alpha\\..*|oxygen\\..*|T\\..*)"
 {
     type zeroGradient;
 }
