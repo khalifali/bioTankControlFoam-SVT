@@ -97,7 +97,7 @@ checkMesh -constant -allGeometry -allTopology > log.checkMeshNCC 2>&1 || true
 # Re-decompose the serial post-NCC mesh so the solver actually sees the
 # nonConformalCyclic interface in parallel.
 rm -rf processor*
-decomposePar -copyZero > log.decomposeParNCC 2>&1
+decomposePar > log.decomposeParNCC 2>&1
 
 echo 'NCC mesh complete and re-decomposed. Review log.checkMeshNCC before production runs.'
 

@@ -39,6 +39,7 @@ public:
     explicit bioTankControlFoam(fvMesh&);
     ~bioTankControlFoam() override;
     void preSolve() override;
+    void motionCorrector() override;
     void postSolve() override;
 };
 } }

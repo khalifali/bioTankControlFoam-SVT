@@ -38,13 +38,11 @@ alphat.gas
 }
 k.liquid
 {
-    type calculated;
-    value uniform 0;
+    type zeroGradient;
 }
 k.gas
 {
-    type calculated;
-    value uniform 0;
+    type zeroGradient;
 }
 
 p

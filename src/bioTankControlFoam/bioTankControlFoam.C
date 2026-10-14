@@ -19,6 +19,22 @@ namespace Foam { namespace solvers {
 defineTypeNameAndDebug(bioTankControlFoam,0);
 addToRunTimeSelectionTable(solver,bioTankControlFoam,fvMesh);
 
+void bioTankControlFoam::motionCorrector() {
+    multiphaseEuler::motionCorrector();
+    // NCC remapping can zero calculated filter boundaries before gas LES
+    // accesses liquid epsilon. Refresh both phases immediately after motion.
+    if(stirrerModel_=="movingMesh") {
+        for(const word& phase:{word("liquid"),word("gas")}) {
+            const word name=IOobject::groupName("delta",phase);
+            if(mesh.foundObject<volScalarField>(name)) {
+                auto& delta=const_cast<volScalarField&>(mesh.lookupObject<volScalarField>(name));
+                forAll(delta.boundaryField(),patchi)
+                    delta.boundaryFieldRef()[patchi] == delta.boundaryField()[patchi].patchInternalField();
+            }
+        }
+    }
+}
+
 scalar bioTankControlFoam::coeff(const word& key,const dimensionSet& dims) const {
     scalar v=dimensionedScalar(key,dims,cfg_).value();
     if(!std::isfinite(v))FatalErrorInFunction<<key<<" must be finite"<<exit(FatalError);
