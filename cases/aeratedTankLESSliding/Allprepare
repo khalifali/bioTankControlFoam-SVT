@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Usage: ./cases/aeratedTankLESSliding/Allprepare /absolute/new/run [exercise|smoke] [ranks]
+# Experimental Euler-Euler LES + rotating-mesh/NCC variant.
+set -euo pipefail
+here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+target=${1:?Usage: Allprepare /absolute/new/run [exercise|smoke] [ranks]}
+profile=${2:-smoke}; ranks=${3:-8}
+[[ $profile =~ ^(exercise|smoke)$ && $ranks =~ ^[1-9][0-9]*$ ]] || exit 2
+"$here/../aeratedTankLES/Allprepare" "$target" "$profile" "$ranks"
+cp "$here/Allmesh" "$target/"
+cp "$here/makeNCC" "$target/"
+cp "$here/constant/dynamicMeshDict" "$target/constant/"
+cp "$here/system/createBafflesDict.NCC" "$target/system/"
+cp "$here/system/nonCouplePatchFields" "$target/system/"
+foamDictionary "$target/constant/bioProperties" -entry stirrerModel -set movingMesh
+# Moving-mesh validation currently uses prescribed speed: the exact LES schedule
+# is represented by OF13 rotatingMotion Function1, not the MRF actuator.
+foamDictionary "$target/constant/bioProperties" -entry actuatorsEnabled -set false
+foamDictionary "$target/constant/bioProperties" -entry controller -set prescribed
+foamDictionary "$target/constant/momentumTransport.liquid" -entry LES/model -set nccSmagorinskyZhang
+# Moving mesh uses absolute velocities; inherited MRF must be removed.
+foamDictionary "$target/constant/MRFProperties" -entry MRF -remove
+foamDictionary "$target/system/fvSolution" -entry PIMPLE/correctMeshPhi -set no
+for phase in liquid gas; do
+    foamDictionary "$target/0/U.$phase" -entry boundaryField/stirrer -set '{ type movingWallVelocity; value uniform (0 0 0); }'
+    foamDictionary "$target/constant/momentumTransport.$phase" -entry LES/delta -set nccCubeRootVol
+done
+echo "Prepared experimental LES-NCC case: $target"
+echo "Run ./Allmesh, inspect log.checkMesh, then ./Allrun."

@@ -19,6 +19,22 @@ namespace Foam { namespace solvers {
 defineTypeNameAndDebug(bioTankControlFoam,0);
 addToRunTimeSelectionTable(solver,bioTankControlFoam,fvMesh);
 
+void bioTankControlFoam::motionCorrector() {
+    multiphaseEuler::motionCorrector();
+    // NCC remapping can zero calculated filter boundaries before gas LES
+    // accesses liquid epsilon. Refresh both phases immediately after motion.
+    if(stirrerModel_=="movingMesh") {
+        for(const word& phase:{word("liquid"),word("gas")}) {
+            const word name=IOobject::groupName("delta",phase);
+            if(mesh.foundObject<volScalarField>(name)) {
+                auto& delta=const_cast<volScalarField&>(mesh.lookupObject<volScalarField>(name));
+                forAll(delta.boundaryField(),patchi)
+                    delta.boundaryFieldRef()[patchi] == delta.boundaryField()[patchi].patchInternalField();
+            }
+        }
+    }
+}
+
 scalar bioTankControlFoam::coeff(const word& key,const dimensionSet& dims) const {
     scalar v=dimensionedScalar(key,dims,cfg_).value();
     if(!std::isfinite(v))FatalErrorInFunction<<key<<" must be finite"<<exit(FatalError);
@@ -44,6 +60,7 @@ bioTankControlFoam::bioTankControlFoam(fvMesh& mesh)
   saturation_(IOobject("oxygenEquilibrium",runTime.name(),mesh,IOobject::NO_READ,IOobject::AUTO_WRITE),mesh,dimensionedScalar(dimMoles/dimVolume,0)),
   mode_(cfg_.lookup<word>("controller")),
   oxygenIntegration_(cfg_.lookupOrDefault<word>("oxygenIntegration","splitEuler")),
+  stirrerModel_(cfg_.lookupOrDefault<word>("stirrerModel","MRF")),
   interval_(coeff("sampleInterval",dimTime)),
   lastSample_(state_.lookupOrDefault<scalar>("lastSample",runTime.value())),
   totalSupply_(state_.lookupOrDefault<scalar>("supply",0)),
@@ -55,8 +72,12 @@ bioTankControlFoam::bioTankControlFoam(fvMesh& mesh)
   applied_{state_.lookupOrDefault<scalar>("omega",coeff("initialOmega",dimless/dimTime)),
       state_.lookupOrDefault<scalar>("gasFlow",coeff("initialGasFlow",dimVolume/dimTime))}
 {
-    if(mesh.dynamic() || !transient() || LTS)
-        FatalErrorInFunction<<"Use a fixed mesh and transient time stepping without LTS"<<exit(FatalError);
+    if(!transient() || LTS)
+        FatalErrorInFunction<<"Use transient time stepping without LTS"<<exit(FatalError);
+    if(stirrerModel_!="MRF" && stirrerModel_!="movingMesh")
+        FatalErrorInFunction<<"stirrerModel must be MRF or movingMesh"<<exit(FatalError);
+    if((stirrerModel_=="MRF" && mesh.dynamic()) || (stirrerModel_=="movingMesh" && !mesh.dynamic()))
+        FatalErrorInFunction<<"stirrerModel and mesh motion are inconsistent"<<exit(FatalError);
     if(oxygenIntegration_!="splitEuler" && oxygenIntegration_!="midpoint")
         FatalErrorInFunction<<"oxygenIntegration must be splitEuler or midpoint"<<exit(FatalError);
     if(runTime.value()>0 && state_.lookupOrDefault<word>("oxygenIntegration","splitEuler")!=oxygenIntegration_)
@@ -114,7 +135,7 @@ bioTankControlFoam::bioTankControlFoam(fvMesh& mesh)
         || state_.lookup<scalar>("sampleInterval")!=interval_
         || state_.lookup<scalar>("deltaT")!=dt))
         FatalErrorInFunction<<"Restart must preserve controller, probes, sample interval and deltaT"<<exit(FatalError);
-    if(runTime.value()>0 && cfg_.lookupOrDefault<bool>("actuatorsEnabled",true)) {
+    if(runTime.value()>0 && cfg_.lookupOrDefault<bool>("actuatorsEnabled",true) && stirrerModel_=="MRF") {
         // Written phase phi fields are already relative to the frame USED in
         // the last completed step, which can differ from the next queued command.
         // Restore that frame without transforming the just-read fluxes. preSolve
@@ -210,7 +231,7 @@ void bioTankControlFoam::sample() {
 void bioTankControlFoam::actuate() {
     if(!cfg_.lookupOrDefault<bool>("actuatorsEnabled",true))return; // Closed-box verification.
     const bool changed=applied_.omega!=installedOmega_ || applied_.gasFlow!=installedFlow_;
-    if(applied_.omega!=installedOmega_) {
+    if(applied_.omega!=installedOmega_ && stirrerModel_=="MRF") {
         // MRFZone::read() in OF13 does NOT rebuild omega_. Reset the zones.
         // Convert current relative fluxes using the old frame, then the new one.
         forAll(movingPhases_,i)MRF.makeAbsolute(movingPhases_[i].phiRef());
@@ -253,6 +274,17 @@ void bioTankControlFoam::actuate() {
 }
 void bioTankControlFoam::preSolve() {
     actuate();
+    if(stirrerModel_=="movingMesh") {
+        // Probe locations are physical-space locations. Cell ownership can change
+        // as the rotating zone moves, so never retain startup cell labels.
+        const meshSearch& search=meshSearch::New(mesh);
+        forAll(names_,i) {
+            label cell=search.findCell(positions_[i]), owner=cell>=0?Pstream::myProcNo():labelMax;
+            reduce(owner,minOp<label>());
+            if(owner==labelMax) FatalErrorInFunction<<"Probe outside moving mesh: "<<names_[i]<<exit(FatalError);
+            cells_[i]=owner==Pstream::myProcNo()?cell:-1;
+        }
+    }
     // foamRun calls preSolve BEFORE advancing time and solving the phases.
     // Recreate these endpoint coefficients from checkpoint fields on restart.
     if(oxygenIntegration_=="midpoint" && runTime.value()>=coeff("oxygenStartTime",dimTime)-SMALL) {
@@ -415,6 +447,7 @@ void bioTankControlFoam::oxygenStep() {
 
 void bioTankControlFoam::persist() {
     state_.set("oxygenIntegration",oxygenIntegration_);
+    state_.set("stirrerModel",stirrerModel_);
     state_.set("controller",mode_);state_.set("probeNames",names_);state_.set("probePositions",positions_);
     state_.set("sampleInterval",interval_);state_.set("deltaT",runTime.deltaTValue());state_.set("lastSample",lastSample_);
     state_.set("omega",applied_.omega);state_.set("gasFlow",applied_.gasFlow);

@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+cd "${0%/*}" || exit 1
+. "$WM_PROJECT_DIR/bin/tools/RunFunctions"
+# Patches nonCouple1/nonCouple2 are created by Allmesh around rotatingZone.
+runApplication -a createBaffles -dict createBafflesDict.NCC
+runApplication splitBaffles
+runApplication createNonConformalCouples -fields nonCouple1 nonCouple2

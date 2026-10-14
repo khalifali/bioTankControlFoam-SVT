@@ -1,3 +1,5 @@
 bioTankControlFoam.C
+nccCubeRootVolDelta.C
+nccSmagorinskyZhang.C
 
 LIB = $(FOAM_USER_LIBBIN)/libbioTankControlFoam
